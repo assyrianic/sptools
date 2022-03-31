@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"strconv"
 )
 
 
@@ -120,48 +121,182 @@ func (macro spMacro) apply(tokens []SPToken, i *int) ([]SPToken, bool) {
 
 type CondInclCtx int
 const (
-	IN_THEN = CondInclCtx(iota + 1)
+	IN_THEN = CondInclCtx(iota)
 	IN_ELIF
 	IN_ELSE
 )
+type spCondInclStack []CondInclCtx
 
-type (
-	spCondIncl struct {
-		file   *string
-		ctx     CondInclCtx
-		is_true bool
-	}
-	spCondIclStack []spCondIncl
-)
+func (stack spCondInclStack) readIf() {
+	stack = append(stack, IN_THEN)
+}
 
-func (stack *spCondIclStack) readIf(is_true bool) {
-	*stack = append(*stack, spCondIncl{file: nil, ctx: IN_THEN, is_true: is_true})
-	if !is_true {
-		stack.skipCondInc()
+func (stack spCondInclStack) readEndIf(tokens []SPToken, i *int) {
+	if l := len(stack); l <= 0 {
+		// error here because lone #endif.
+	} else {
+		// basically popping.
+		stack = stack[:l-1]
 	}
 }
 
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+func intToBool(i int) bool {
+	return i != 0
+}
 
+// expr = OrExpr .
+func evalCond(tokens []SPToken, i *int, macros map[string]spMacro) int {
+	return evalOr(tokens, i, macros)
+}
 
+// OrExpr = AndExpr *( '||' AndExpr ) .
+func evalOr(tokens []SPToken, i *int, macros map[string]spMacro) int {
+	res := evalAnd(tokens, i, macros)
+	if res < 0 {
+		return -1
+	}
+	for tokens[*i].Kind==SPTKOrL {
+		*i++
+		res = boolToInt(intToBool(res) || intToBool(evalAnd(tokens, i, macros)))
+	}
+	return res
+}
+// AndExpr = RelExpr *( '&&' RelExpr ) .
+func evalAnd(tokens []SPToken, i *int, macros map[string]spMacro) int {
+	res := evalRel(tokens, i, macros)
+	if res < 0 {
+		return -1
+	}
+	for tokens[*i].Kind==SPTKAndL {
+		*i++
+		res = boolToInt(intToBool(res) && intToBool(evalRel(tokens, i, macros)))
+	}
+	return res
+}
+// RelExpr = AddExpr *( ( '==' | '!=' | '>=' | '<=' | '<' | '>' ) AddExpr ) .
+func evalRel(tokens []SPToken, i *int, macros map[string]spMacro) int {
+	res := evalAdd(tokens, i, macros)
+	if res < 0 {
+		return -1
+	}
+	for tokens[*i].Kind >= SPTKLess && tokens[*i].Kind <= SPTKEq {
+		k := tokens[*i].Kind
+		*i++
+		switch k {
+			case SPTKLess:
+				res = boolToInt(res < evalAdd(tokens, i, macros))
+			case SPTKGreater:
+				res = boolToInt(res > evalAdd(tokens, i, macros))
+			case SPTKGreaterE:
+				res = boolToInt(res >= evalAdd(tokens, i, macros))
+			case SPTKLessE:
+				res = boolToInt(res <= evalAdd(tokens, i, macros))
+			case SPTKNotEq:
+				res = boolToInt(res != evalAdd(tokens, i, macros))
+			case SPTKEq:
+				res = boolToInt(res == evalAdd(tokens, i, macros))
+		}
+	}
+	return res
+}
+// AddExpr = MulExpr *( ( '+' | '-' ) MulExpr ) .
+func evalAdd(tokens []SPToken, i *int, macros map[string]spMacro) int {
+	res := evalMul(tokens, i, macros)
+	if res < 0 {
+		return -1
+	}
+	for tokens[*i].Kind==SPTKAdd || tokens[*i].Kind==SPTKSub {
+		k := tokens[*i].Kind
+		*i++
+		switch k {
+			case SPTKAdd:
+				res += evalMul(tokens, i, macros)
+			case SPTKSub:
+				res -= evalMul(tokens, i, macros)
+		}
+	}
+	return res
+}
+// MulExpr = IntExpr *( ( '*' | '/' | '%' ) IntExpr ) .
+func evalMul(tokens []SPToken, i *int, macros map[string]spMacro) int {
+	res := evalTerm(tokens, i, macros)
+	if res < 0 {
+		return -1
+	}
+	for tokens[*i].Kind==SPTKMul || tokens[*i].Kind==SPTKDiv || tokens[*i].Kind==SPTKMod {
+		k := tokens[*i].Kind
+		*i++
+		switch k {
+			case SPTKMul:
+				res *= evalMul(tokens, i, macros)
+			case SPTKDiv:
+				res /= evalMul(tokens, i, macros)
+			case SPTKMod:
+				res %= evalMul(tokens, i, macros)
+		}
+	}
+	return res
+}
+// Term = ident | 'defined' ident | integer .
+func evalTerm(tokens []SPToken, i *int, macros map[string]spMacro) int {
+	if tokens[*i].Kind==SPTKDefined {
+		*i++
+		if tokens[*i].Kind != SPTKIdent {
+			// error here.
+		}
+		_, found := macros[tokens[*i].Lexeme]
+		*i++
+		if found {
+			return 1
+		} else {
+			return 0
+		}
+	} else if tokens[*i].Kind==SPTKIdent {
+		time.Sleep(500 * time.Millisecond)
+		macro, found := macros[tokens[*i].Lexeme]
+		if !found {
+			return 0
+		}
+		saved := *i
+		expanded, good := macro.apply(tokens, i)
+		if !good {
+			*i = saved
+			return -1
+		} else {
+			tokens = append(tokens[:saved], append(expanded, tokens[saved:]...)...)
+			return evalTerm(tokens, &saved, macros)
+		}
+	} else if tokens[*i].Kind==SPTKIntLit {
+		d, _ := strconv.ParseInt(tokens[*i].Lexeme, 0, 64)
+		*i++
+		return int(d)
+	} else {
+		writeMsg(nil, os.Stdout, *tokens[*i].Path, "syntax error", COLOR_RED, &tokens[*i].Line, &tokens[*i].Col, "conditional preprocessing requires an integer, constant expression, got '%s'.", tokens[*i].Lexeme)
+		return -1
+	}
+}
 
 func Preprocess(tokens []SPToken) ([]SPToken, bool) {
 	var output []SPToken
+	var condInclStk int
 	macros, num_tokens := make(map[string]spMacro), len(tokens)
-	macros["__SPTOOLS_COMPILER__"] = spMacro{tokens: make([]SPToken, 0), params: nil, funcLike: false}
+	macros["__SPTOOLS__"] = spMacro{tokens: make([]SPToken, 0), params: nil, funcLike: false}
+	
 	for i:=0; i < num_tokens; i++ {
 		t := tokens[i]
-		time.Sleep(500 * time.Millisecond)
-		//fmt.Printf("preprocess token: %q | %d\n", t.Lexeme, i)
+		//time.Sleep(500 * time.Millisecond)
 		if t.Kind==SPTKIdent {
-			//fmt.Printf("Got Ident %q\n", t.Lexeme)
 			if macro, found := macros[t.Lexeme]; found {
-				//fmt.Printf("Found existing macro %q!\n", t.Lexeme)
 				if toks, res := macro.apply(tokens, &i); res {
-					//fmt.Printf("applied macro\n")
 					output = append(output, toks...)
 				}
 			} else {
-				//fmt.Printf("didn't find macro\n")
 				output = append(output, t)
 			}
 			continue
@@ -169,7 +304,6 @@ func Preprocess(tokens []SPToken) ([]SPToken, bool) {
 		
 		if t.Kind==SPTKHash {
 			if i + 1 < num_tokens {
-				//fmt.Printf("got preproc directive %q!\n", tokens[i+1].Lexeme)
 				switch directive := tokens[i+1]; directive.Lexeme {
 					case "line", "pragma":
 						// skipping this for now.
@@ -180,7 +314,6 @@ func Preprocess(tokens []SPToken) ([]SPToken, bool) {
 						idx++
 						i = idx
 					case "endinput", "endscript":
-						//fmt.Printf("ending input\n")
 						goto preprocessing_done
 					case "define":
 						if i + 2 < num_tokens {
@@ -189,23 +322,18 @@ func Preprocess(tokens []SPToken) ([]SPToken, bool) {
 								writeMsg(nil, os.Stdout, *t2.Path, "syntax error", COLOR_RED, &t2.Line, &t2.Col, "token '%s' where expected identifier in #define.", t2.Lexeme)
 								return tokens, false
 							}
-							//fmt.Printf("got named Define: %q\n", t2.Lexeme)
 							if i + 3 < num_tokens {
 								if tokens[i+3].Kind==SPTKLParen {
 									// function-like macro.
 									if macro, offs := makeFuncMacro(tokens[i+4 : len(tokens)]); offs > 0 {
-										//fmt.Printf("added func-like macro: %q\n", t2.Lexeme)
 										macros[t2.Lexeme] = macro
 										i += offs + 2
-										//fmt.Printf("i is now %d\n", i)
 									}
 								} else {
 									// object-like macro.
-									//fmt.Printf("added obj-like macro: %q\n", t2.Lexeme)
 									macro, offs := makeObjMacro(tokens[i+3 : len(tokens)])
 									macros[t2.Lexeme] = macro
 									i += offs + 1
-									//fmt.Printf("i is now %d\n", i)
 								}
 							}
 						}
@@ -302,11 +430,24 @@ func Preprocess(tokens []SPToken) ([]SPToken, bool) {
 							i = idx
 							writeMsg(nil, os.Stdout, *tokens[i+2].Path, "user warning", COLOR_MAGENTA, &tokens[i+2].Line, &tokens[i+2].Col, "%s.", warn_msg.String())
 						}
-					/* TODO:
 					case "if":
+						condInclStk++
+						idx := i + 2
+						if eval_res := evalCond(tokens, &idx, macros); eval_res < 0 {
+							// negative number is error.
+						} else {
+							fmt.Printf("eval_res from conditional directive: %d\n", eval_res);
+							num_tokens = len(tokens)
+						}
+					case "endif":
+						if condInclStk==0 {
+							writeMsg(nil, os.Stdout, *directive.Path, "syntax error", COLOR_RED, &directive.Line, &directive.Col, "lone #endif.")
+							return tokens, false
+						}
+						condInclStk--
+					/* TODO:
 					case "elif":
 					case "else":
-					case "endif":
 					*/
 					default:
 						writeMsg(nil, os.Stdout, *directive.Path, "syntax error", COLOR_RED, &directive.Line, &directive.Col, "unknown preprocessor directive: '%s'.", directive.Lexeme)

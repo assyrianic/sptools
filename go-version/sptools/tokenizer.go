@@ -787,6 +787,7 @@ func ConcatStringLiterals(tokens []SPToken) []SPToken {
 	num_tokens := len(tokens)
 	for i:=0; i < num_tokens; i++ {
 		if tokens[i].Kind==SPTKStrLit && i + 1 < num_tokens && tokens[i+1].Kind==SPTKEllipses && i + 2 < num_tokens && tokens[i+2].Kind==SPTKStrLit {
+			// merge the two strings together, then remove the ... and 2nd string from the token list.
 			saved := i - 1
 			tokens[i].Lexeme += tokens[i+2].Lexeme
 			tokens = append(tokens[:i+1], tokens[i+3:]...)
