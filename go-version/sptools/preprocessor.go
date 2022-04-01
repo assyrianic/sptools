@@ -63,7 +63,7 @@ func (macro spMacro) apply(tokens []SPToken, i *int) ([]SPToken, bool) {
 	if macro.funcLike {
 		if *i+1 < num_tokens && tokens[*i+1].Kind != SPTKLParen {
 			e := tokens[*i+1]
-			writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "expected ( where function-like macro: '%s'.", e.Lexeme)
+			writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "expected ( where function-like macro but have '%s'.", e.Lexeme)
 			return tokens, false
 		}
 		args := make(map[int]SPToken)
@@ -115,31 +115,11 @@ func (macro spMacro) apply(tokens []SPToken, i *int) ([]SPToken, bool) {
 			}
 		}
 	}
-	return output, true
+	return output, len(output) > 0
 }
 
 
-type CondInclCtx int
-const (
-	IN_THEN = CondInclCtx(iota)
-	IN_ELIF
-	IN_ELSE
-)
-type spCondInclStack []CondInclCtx
-
-func (stack spCondInclStack) readIf() {
-	stack = append(stack, IN_THEN)
-}
-
-func (stack spCondInclStack) readEndIf(tokens []SPToken, i *int) {
-	if l := len(stack); l <= 0 {
-		// error here because lone #endif.
-	} else {
-		// basically popping.
-		stack = stack[:l-1]
-	}
-}
-
+// This is for the #if, #elif, #else conditional parsing.
 func boolToInt(b bool) int {
 	if b {
 		return 1
@@ -159,9 +139,10 @@ func evalCond(tokens []SPToken, i *int, macros map[string]spMacro) int {
 func evalOr(tokens []SPToken, i *int, macros map[string]spMacro) int {
 	res := evalAnd(tokens, i, macros)
 	if res < 0 {
+		// TODO: change return result as -1 is valid in preprocessor.
 		return -1
 	}
-	for tokens[*i].Kind==SPTKOrL {
+	for *i < len(tokens) && tokens[*i].Kind==SPTKOrL {
 		*i++
 		res = boolToInt(intToBool(res) || intToBool(evalAnd(tokens, i, macros)))
 	}
@@ -173,7 +154,7 @@ func evalAnd(tokens []SPToken, i *int, macros map[string]spMacro) int {
 	if res < 0 {
 		return -1
 	}
-	for tokens[*i].Kind==SPTKAndL {
+	for *i < len(tokens) && tokens[*i].Kind==SPTKAndL {
 		*i++
 		res = boolToInt(intToBool(res) && intToBool(evalRel(tokens, i, macros)))
 	}
@@ -185,7 +166,7 @@ func evalRel(tokens []SPToken, i *int, macros map[string]spMacro) int {
 	if res < 0 {
 		return -1
 	}
-	for tokens[*i].Kind >= SPTKLess && tokens[*i].Kind <= SPTKEq {
+	for *i < len(tokens) && (tokens[*i].Kind >= SPTKLess && tokens[*i].Kind <= SPTKEq) {
 		k := tokens[*i].Kind
 		*i++
 		switch k {
@@ -211,7 +192,7 @@ func evalAdd(tokens []SPToken, i *int, macros map[string]spMacro) int {
 	if res < 0 {
 		return -1
 	}
-	for tokens[*i].Kind==SPTKAdd || tokens[*i].Kind==SPTKSub {
+	for *i < len(tokens) && (tokens[*i].Kind==SPTKAdd || tokens[*i].Kind==SPTKSub) {
 		k := tokens[*i].Kind
 		*i++
 		switch k {
@@ -223,70 +204,130 @@ func evalAdd(tokens []SPToken, i *int, macros map[string]spMacro) int {
 	}
 	return res
 }
-// MulExpr = IntExpr *( ( '*' | '/' | '%' ) IntExpr ) .
+// MulExpr = Term *( ( '*' | '/' | '%' ) Term ) .
 func evalMul(tokens []SPToken, i *int, macros map[string]spMacro) int {
 	res := evalTerm(tokens, i, macros)
 	if res < 0 {
 		return -1
 	}
-	for tokens[*i].Kind==SPTKMul || tokens[*i].Kind==SPTKDiv || tokens[*i].Kind==SPTKMod {
+	for *i < len(tokens) && (tokens[*i].Kind==SPTKMul || tokens[*i].Kind==SPTKDiv || tokens[*i].Kind==SPTKMod) {
 		k := tokens[*i].Kind
 		*i++
 		switch k {
 			case SPTKMul:
-				res *= evalMul(tokens, i, macros)
+				res *= evalTerm(tokens, i, macros)
 			case SPTKDiv:
-				res /= evalMul(tokens, i, macros)
+				res /= evalTerm(tokens, i, macros)
 			case SPTKMod:
-				res %= evalMul(tokens, i, macros)
+				res %= evalTerm(tokens, i, macros)
 		}
 	}
 	return res
 }
-// Term = ident | 'defined' ident | integer .
+// Term = ident | 'defined' ident | integer | '(' Expr ')'.
 func evalTerm(tokens []SPToken, i *int, macros map[string]spMacro) int {
-	if tokens[*i].Kind==SPTKDefined {
-		*i++
-		if tokens[*i].Kind != SPTKIdent {
-			// error here.
-		}
-		_, found := macros[tokens[*i].Lexeme]
-		*i++
-		if found {
-			return 1
-		} else {
-			return 0
-		}
-	} else if tokens[*i].Kind==SPTKIdent {
-		time.Sleep(500 * time.Millisecond)
-		macro, found := macros[tokens[*i].Lexeme]
-		if !found {
-			return 0
-		}
-		saved := *i
-		expanded, good := macro.apply(tokens, i)
-		if !good {
-			*i = saved
+	switch t := tokens[*i]; t.Kind {
+		case SPTKDefined:
+			fmt.Printf("got defined check\n")
+			*i++
+			if *i >= len(tokens) || tokens[*i].Kind != SPTKIdent {
+				writeMsg(nil, os.Stdout, *t.Path, "syntax error", COLOR_RED, &t.Line, &t.Col, "'defined' expected identifier but got '%s'.", t.Lexeme)
+				return -1
+			}
+			
+			_, found := macros[tokens[*i].Lexeme]
+			*i++
+			if found {
+				return 1
+			} else {
+				return 0
+			}
+		case SPTKIdent:
+			time.Sleep(500 * time.Millisecond)
+			writeMsg(nil, os.Stdout, *t.Path, "log", COLOR_GREEN, &t.Line, &t.Col, "conditional preprocessing macro: '%s'.", t.Lexeme)
+			
+			macro, found := macros[t.Lexeme]
+			if !found {
+				if t.Lexeme == "__LINE__" {
+					return t.Line
+				}
+				writeMsg(nil, os.Stdout, *t.Path, "syntax error", COLOR_RED, &t.Line, &t.Col, "undefined symbol '%s'.", t.Lexeme)
+				return -1
+			}
+			
+			saved := *i
+			expanded, good := macro.apply(tokens, i)
+			if macro.funcLike {
+				*i++
+			}
+			if !good {
+				*i = saved
+				fmt.Printf("not good\n")
+				return -1
+			} else {
+				fmt.Printf("%+v\n", expanded)
+				//fmt.Printf("tokens[:saved][0] :: '%s' - tokens[:saved][0] :: '%s'\n", tokens[:saved][0].Lexeme, tokens[saved:][0].Lexeme)
+				//tokens = append(tokens[:saved], append(expanded, tokens[saved:]...)...)
+				n := 0
+				r := evalCond(expanded, &n, macros)
+				fmt.Printf("evaluated macro result: %d\n", r)
+				return r
+			}
+		case SPTKIntLit:
+			fmt.Printf("got int lit '%s'\n", t.Lexeme)
+			d, _ := strconv.ParseInt(t.Lexeme, 0, 64)
+			*i++
+			return int(d)
+		case SPTKLParen:
+			fmt.Printf("got parentheses (expr)\n")
+			*i++
+			exp := evalCond(tokens, i, macros)
+			if *i >= len(tokens) || tokens[*i].Kind != SPTKRParen {
+				e := tokens[*i]
+				writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "expected ')' got '%s' in conditional preprocessor directive.", e.Lexeme)
+				return -1
+			} else {
+				*i++
+			}
+			return exp
+		default:
+			writeMsg(nil, os.Stdout, *tokens[*i].Path, "syntax error", COLOR_RED, &tokens[*i].Line, &tokens[*i].Col, "conditional preprocessing requires a constant, integer expression, got '%s'.", tokens[*i].Lexeme)
 			return -1
-		} else {
-			tokens = append(tokens[:saved], append(expanded, tokens[saved:]...)...)
-			return evalTerm(tokens, &saved, macros)
-		}
-	} else if tokens[*i].Kind==SPTKIntLit {
-		d, _ := strconv.ParseInt(tokens[*i].Lexeme, 0, 64)
-		*i++
-		return int(d)
-	} else {
-		writeMsg(nil, os.Stdout, *tokens[*i].Path, "syntax error", COLOR_RED, &tokens[*i].Line, &tokens[*i].Col, "conditional preprocessing requires an integer, constant expression, got '%s'.", tokens[*i].Lexeme)
-		return -1
 	}
 }
 
+
+type CondInclCtx int
+const (
+	IN_THEN = CondInclCtx(iota)
+	IN_ELIF
+	IN_ELSE
+)
+type spCondInclStack []CondInclCtx
+
+func (stack spCondInclStack) push(ctx CondInclCtx) {
+	stack = append(stack, ctx)
+}
+
+func (stack spCondInclStack) pop() bool {
+	if l := len(stack); l <= 0 {
+		return false
+	} else {
+		stack = stack[:l-1]
+		return true
+	}
+}
+
+
 func Preprocess(tokens []SPToken) ([]SPToken, bool) {
-	var output []SPToken
-	var condInclStk int
+	var (
+		output []SPToken
+		ifStack  spCondInclStack
+		skipStk *CondInclCtx
+	)
 	macros, num_tokens := make(map[string]spMacro), len(tokens)
-	macros["__SPTOOLS__"] = spMacro{tokens: make([]SPToken, 0), params: nil, funcLike: false}
+	sptools_define := SPToken{ Lexeme: "1", Path: tokens[0].Path, Line: -1, Col: -1, Kind: SPTKIntLit }
+	macros["__SPTOOLS__"] = spMacro{tokens: []SPToken{sptools_define}, params: nil, funcLike: false}
 	
 	for i:=0; i < num_tokens; i++ {
 		t := tokens[i]
@@ -431,20 +472,31 @@ func Preprocess(tokens []SPToken) ([]SPToken, bool) {
 							writeMsg(nil, os.Stdout, *tokens[i+2].Path, "user warning", COLOR_MAGENTA, &tokens[i+2].Line, &tokens[i+2].Col, "%s.", warn_msg.String())
 						}
 					case "if":
-						condInclStk++
+						ifStack.push(IN_THEN)
 						idx := i + 2
-						if eval_res := evalCond(tokens, &idx, macros); eval_res < 0 {
-							// negative number is error.
+						if eval_res := evalCond(tokens, &idx, macros); eval_res==0 {
+							stklen := len(ifStack)
+							// TODO: have it skip to elifs and elses
 						} else {
 							fmt.Printf("eval_res from conditional directive: %d\n", eval_res);
 							num_tokens = len(tokens)
+							i = idx
+							for i < num_tokens {
+								if tokens[i].Kind != SPTKHash {
+									continue
+								}
+								i++
+								if skip := tokens[i]; skip.Lexeme=="if" || skip.Lexeme=="elif" || skip.Lexeme=="else" || skip.Lexeme=="endif" {
+									
+								}
+							}
 						}
 					case "endif":
-						if condInclStk==0 {
+						if res := ifStack.pop(); !res {
 							writeMsg(nil, os.Stdout, *directive.Path, "syntax error", COLOR_RED, &directive.Line, &directive.Col, "lone #endif.")
 							return tokens, false
 						}
-						condInclStk--
+						i++
 					/* TODO:
 					case "elif":
 					case "else":
