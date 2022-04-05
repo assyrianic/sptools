@@ -47,8 +47,15 @@ func loadFile(filename string) string {
 }
 
 
+const (
+	LEXFLAG_PREPROCESS    = (1 << iota)
+	LEXFLAG_STRIPNEWLINES = (1 << iota)
+	LEXFLAG_STRIPCOMMENTS = (1 << iota)
+	LEXFLAG_ALL           = -1
+)
+
 // Lexes and preprocesses a file, returning its token array.
-func LexFile(filename string, preproc, strip_newlines bool) ([]SPToken, bool) {
+func LexFile(filename string, flags int) ([]SPToken, bool) {
 	var tokens []SPToken
 	code := loadFile(filename)
 	if len(code) <= 0 {
@@ -57,14 +64,18 @@ func LexFile(filename string, preproc, strip_newlines bool) ([]SPToken, bool) {
 	
 	tokens = Tokenize(code, filename)
 	tokens = ConcatStringLiterals(tokens)
-	if preproc {
+	if flags & LEXFLAG_PREPROCESS > 0 {
 		if output, res := Preprocess(tokens); res {
-			if strip_newlines {
+			if flags & LEXFLAG_STRIPNEWLINES > 0 {
 				output = StripNewlineTokens(output)
 			}
-			return output, true
+			tokens = output
+		} else {
+			return tokens, false
 		}
-		return tokens, false
+	}
+	if flags & LEXFLAG_STRIPCOMMENTS > 0 {
+		tokens = RemoveComments(tokens)
 	}
 	return tokens, true
 }

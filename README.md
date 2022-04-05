@@ -16,10 +16,18 @@
 
 To submit a patch, first file an issue and/or present a pull request.
 
+
+### Code style
+Code as you wish but use two slashes `//` or single star C++-style `/**/` for comments used as messages.
+
+Commented out code should use three slashes `///` or double star C++-style.
+
+
 ## Help
 
 If you need help or have any question, make an issue on the github repository.
 Simply drop a message or your question and you'll be reached in no time!
+
 
 ## Installation
 

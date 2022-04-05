@@ -762,7 +762,11 @@ func Tokenize(src, filename string) []SPToken {
 			for key := range Opers {
 				// Match largest operator first.
 				keylen := len(key)
-				if idx + keylen < max && string(runes[starting : idx + keylen])==key && oper_size < keylen {
+				if idx + keylen > max {
+					continue
+				}
+				
+				if string(runes[starting : idx+keylen])==key && oper_size < keylen {
 					oper_size, oper_key, got_match = keylen, key, true
 				}
 			}
@@ -802,6 +806,18 @@ func StripNewlineTokens(tokens []SPToken) []SPToken {
 	num_tokens := len(tokens)
 	for i:=0; i < num_tokens; i++ {
 		if tokens[i].Kind==SPTKNewline {
+			tokens = append(tokens[:i], tokens[i+1:]...)
+			num_tokens = len(tokens)
+			i = 0
+		}
+	}
+	return tokens
+}
+
+func RemoveComments(tokens []SPToken) []SPToken {
+	num_tokens := len(tokens)
+	for i:=0; i < num_tokens; i++ {
+		if tokens[i].Kind==SPTKComment {
 			tokens = append(tokens[:i], tokens[i+1:]...)
 			num_tokens = len(tokens)
 			i = 0
