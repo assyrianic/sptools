@@ -12,10 +12,11 @@ func main() {
 	lexing_flags := SPTools.LEXFLAG_PREPROCESS | SPTools.LEXFLAG_STRIPNEWLINES
 	if sp_plugin := SPTools.ParseFile(os.Args[1], lexing_flags); sp_plugin != nil {
 		SPTools.Walk(sp_plugin, func(n SPTools.Node) bool {
-			switch ast := n.(type) {
-				default:
-					fmt.Printf("%+v\n", ast)
-			}
+			
+			//switch ast := n.(type) {
+				//default:
+					fmt.Printf("%T\n", n)
+			//}
 			return true
 		})
 	} else {

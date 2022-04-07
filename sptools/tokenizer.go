@@ -82,7 +82,7 @@ const (
 	// goto
 	TKGoto
 	
-	// if, implicit, import, in, int[8|16|32|64], interface, intn
+	// if, implicit, import, in, int[8|16|32|64], intn, interface
 	TKIf
 	TKImplicit
 	TKImport
@@ -92,8 +92,8 @@ const (
 	TKInt16
 	TKInt32
 	TKInt64
-	TKInterface
 	TKIntN
+	TKInterface
 	
 	// let
 	TKLet
@@ -409,6 +409,17 @@ func (tok *Token) IsDelimiter() bool {
 
 func (tok *Token) IsOperator() bool {
 	return tok.Kind >= TKAdd && tok.Kind <= TK2Colons
+}
+
+func (tok *Token) IsType() bool {
+	switch tok.Kind {
+		case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
+			fallthrough
+		case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble:
+			return true
+		default:
+			return false
+	}
 }
 
 /*

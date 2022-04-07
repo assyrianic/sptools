@@ -23,6 +23,10 @@ func (n *node) Pos() Pos { return n.pos }
 func (*node) aNode()       {}
 
 
+func copyPosToNode(n *node, t Token) {
+	n.pos.Line, n.pos.Col = t.Line, t.Col
+}
+
 type Parser struct {
 	tokens  []Token
 	idx, Errs int
@@ -45,12 +49,14 @@ func (parser *Parser) syntaxErr(msg string, args ...interface{}) {
 func (parser *Parser) want(tk TokenKind, lexeme string) {
 	if !parser.got(tk) {
 		parser.syntaxErr("expecting '%s'", lexeme)
+		// continue on and try to parse the remainder
+		parser.idx++
 	}
 }
 
 
 func (parser *Parser) Start() Node {
-	return parser.PostfixExpr()
+	return parser.PrefixExpr()
 }
 
 
@@ -66,6 +72,7 @@ const (
 	FloatLit
 	CharLit
 	StringLit
+	BoolLit
 )
 
 type (
@@ -75,6 +82,25 @@ type (
 	}
 	
 	BadExpr struct {
+		expr
+	}
+	
+	ViewAsExpr struct {
+		Type TypeExpr
+		X Expr
+		expr
+	}
+	
+	TypeExpr struct {
+		Tok Token
+		expr
+	}
+	
+	// ++i, i++ sizeof new
+	UnaryExpr struct {
+		X Expr
+		Kind TokenKind
+		Post bool
 		expr
 	}
 	
@@ -108,6 +134,11 @@ type (
 		expr
 	}
 	
+	// null
+	NullExpr struct {
+		expr
+	}
+	
 	// i
 	Name struct {
 		Value string
@@ -125,101 +156,167 @@ type expr struct{ node }
 func (*expr) aExpr() {}
 
 
-// Prefix = ( 'sizeof' | 'defined' | 'new' | '!' | '~' | '-' | '++' | '--' ) PostFix
+// Prefix = ( *( '!' | '~' | '-' | '++' | '--' ) ) | ('sizeof' | 'defined' | 'new') Postfix .
 func (parser *Parser) PrefixExpr() Expr {
-	return nil
+	// certain patterns are allowed to recursively run Prefix.
+	switch t := parser.tokens[parser.idx]; t.Kind {
+		case TKIncr, TKDecr, TKNot, TKCompl, TKSub, TKSizeof, TKDefined, TKNew:
+			n := new(UnaryExpr)
+			parser.idx++
+			copyPosToNode(&n.node, t)
+			n.X = parser.PrefixExpr()
+			n.Kind = t.Kind
+			return n
+		default:
+			return parser.PostfixExpr()
+	}
 }
 
-// PostFix = Primary *( '.' identifier | '[' Expr ']' | '(' [ ExprList ] ')' | '::' identifier ) .
+
+// TODO: do view_as<type>(expr), also allow doing functional type casting: int(expr)
+
+// TypeExpr = '<' ( ident | '[u]int[8|16|32|64|n]' | 'float' | 'char' | 'bool' ) '>'
+func (parser *Parser) TypeExpr() Expr {
+	if parser.idx >= len(parser.tokens) {
+		i := len(parser.tokens)
+		err_expr := new(BadExpr)
+		copyPosToNode(&err_expr.node, parser.tokens[i-1])
+		return err_expr
+	}
+	
+	ret_expr := Expr(nil)
+	parser.want(TKLess, "<")
+	if t := parser.tokens[parser.idx]; t.IsType() || t.Kind==TKIdent {
+		texp := new(TypeExpr)
+		copyPosToNode(&texp.node, t)
+		texp.Tok = t
+		ret_expr = texp
+	} else {
+		parser.syntaxErr("view_as missing type expression")
+		err_expr := new(BadExpr)
+		copyPosToNode(&err_expr.node, t)
+		ret_expr = err_expr
+	}
+	parser.want(TKGreater, ">")
+	return ret_expr
+}
+
+// Postfix = Primary *( '.' identifier | '[' Expr ']' | '(' [ ExprList ] ')' | '::' identifier | '++' | '--' ) .
 func (parser *Parser) PostfixExpr() Expr {
-	primary := parser.PrimaryExpr()
-	for parser.idx < len(parser.tokens) && (parser.tokens[parser.idx].Kind==TKDot || parser.tokens[parser.idx].Kind==TKLBrack || parser.tokens[parser.idx].Kind==TKLParen || parser.tokens[parser.idx].Kind==TK2Colons) {
-		t := parser.tokens[parser.idx]
+	n := parser.PrimaryExpr()
+	if parser.idx >= len(parser.tokens) {
+		return n
+	}
+	
+	for t := parser.tokens[parser.idx]; parser.idx < len(parser.tokens) && (t.Kind==TKDot || t.Kind==TKLBrack || t.Kind==TKLParen || t.Kind==TK2Colons || t.Kind==TKIncr || t.Kind==TKDecr); t = parser.tokens[parser.idx] {
 		parser.idx++
 		switch t.Kind {
 			case TKDot:
 				field := new(FieldExpr)
-				field.X = primary
+				copyPosToNode(&field.node, t)
+				field.X = n
 				field.Sel = parser.PrimaryExpr()
-				primary = field
+				n = field
 			case TK2Colons:
 				namespc := new(NameSpaceExpr)
-				namespc.N = primary
+				copyPosToNode(&namespc.node, t)
+				namespc.N = n
 				namespc.Id = parser.PrimaryExpr()
-				primary = namespc
+				n = namespc
 			case TKLBrack:
 				arr := new(IndexExpr)
-				arr.X = primary
+				copyPosToNode(&arr.node, t)
+				arr.X = n
 				arr.Index = parser.PrimaryExpr()
 				parser.want(TKRBrack, "]")
-				primary = arr
+				n = arr
+			case TKIncr, TKDecr:
+				incr := new(UnaryExpr)
+				copyPosToNode(&incr.node, t)
+				incr.X = n
+				incr.Kind = t.Kind
+				incr.Post = true
+				n = incr
 			case TKLParen:
 				call := new(CallExpr)
-				call.Func = primary
+				copyPosToNode(&call.node, t)
+				call.Func = n
 				func() {
-					for parser.tokens[parser.idx].Kind != TKRParen {
+					for parser.idx < len(parser.tokens) && parser.tokens[parser.idx].Kind != TKRParen {
 						if len(call.ArgList) > 0 {
 							parser.want(TKComma, ",")
 						}
-						call.ArgList = append(call.ArgList, parser.PostfixExpr())
+						call.ArgList = append(call.ArgList, parser.PrefixExpr())
 					}
 				}()
 				parser.want(TKRParen, ")")
-				primary = call
+				n = call
 		}
 	}
-	return primary
+	return n
 }
 
-// Primary = int_lit | rune_lit | string_lit | identifier | 'this' | '(' Expr ')' .
+// Primary = int_lit | rune_lit | string_lit | identifier | 'true' | 'false' | 'this' | 'null' | '(' Expr ')' .
 func (parser *Parser) PrimaryExpr() Expr {
 	ret_expr := Expr(nil)
 	if parser.idx >= len(parser.tokens) || parser.tokens[parser.idx].Kind==TKEoF {
 		i := len(parser.tokens)
 		err_expr := new(BadExpr)
-		err_expr.node.pos.Line, err_expr.node.pos.Col = parser.tokens[i-1].Line, parser.tokens[i-1].Col
+		copyPosToNode(&err_expr.node, parser.tokens[i-1])
 		return err_expr
 	}
 	switch prim := parser.tokens[parser.idx]; prim.Kind {
-		//case TKLParen:
-			// nested expression
+		case TKLParen:
+			parser.idx++
+			ret_expr = parser.PrefixExpr()
+			parser.want(TKRParen, ")")
 		case TKIdent:
 			iden := new(Name)
 			iden.Value = prim.Lexeme
-			iden.node.pos = Pos{ Line: prim.Line, Col: prim.Col }
+			copyPosToNode(&iden.node, prim)
 			ret_expr = iden
 		case TKIntLit:
 			num := new(BasicLit)
 			num.Value = prim.Lexeme
 			num.Kind = IntLit
-			num.node.pos = Pos{ Line: prim.Line, Col: prim.Col }
+			copyPosToNode(&num.node, prim)
 			ret_expr = num
 		case TKFloatLit:
 			num := new(BasicLit)
 			num.Value = prim.Lexeme
 			num.Kind = FloatLit
-			num.node.pos = Pos{ Line: prim.Line, Col: prim.Col }
+			copyPosToNode(&num.node, prim)
 			ret_expr = num
 		case TKStrLit:
 			str := new(BasicLit)
 			str.Value = prim.Lexeme
 			str.Kind = StringLit
-			str.node.pos = Pos{ Line: prim.Line, Col: prim.Col }
+			copyPosToNode(&str.node, prim)
 			ret_expr = str
 		case TKCharLit:
 			str := new(BasicLit)
 			str.Value = prim.Lexeme
 			str.Kind = CharLit
-			str.node.pos = Pos{ Line: prim.Line, Col: prim.Col }
+			copyPosToNode(&str.node, prim)
 			ret_expr = str
 		case TKThis:
 			this := new(ThisExpr)
-			this.node.pos = Pos{ Line: prim.Line, Col: prim.Col }
+			copyPosToNode(&this.node, prim)
 			ret_expr = this
+		case TKTrue, TKFalse:
+			boolean := new(BasicLit)
+			boolean.Value = prim.Lexeme
+			boolean.Kind = BoolLit
+			copyPosToNode(&boolean.node, prim)
+			ret_expr = boolean
+		case TKNull:
+			null := new(NullExpr)
+			copyPosToNode(&null.node, prim)
+			ret_expr = null
 		default:
 			parser.syntaxErr("bad primary expression")
 			err_expr := new(BadExpr)
-			err_expr.node.pos.Line, err_expr.node.pos.Col = prim.Line, prim.Col
+			copyPosToNode(&err_expr.node, prim)
 			ret_expr = err_expr
 	}
 	parser.idx++
@@ -227,12 +324,12 @@ func (parser *Parser) PrimaryExpr() Expr {
 }
 
 
-func Walk(node Node, visitor func(Node) bool) {
-	if !visitor(node) {
+func Walk(n Node, visitor func(Node) bool) {
+	if !visitor(n) {
 		return
 	}
 	
-	switch ast := node.(type) {
+	switch ast := n.(type) {
 		//case *BasicLit:
 		//case *Name:
 		//case *ThisExpr:
@@ -252,5 +349,7 @@ func Walk(node Node, visitor func(Node) bool) {
 		case *FieldExpr:
 			Walk(ast.X, visitor)
 			Walk(ast.Sel, visitor)
+		case *UnaryExpr:
+			Walk(ast.X, visitor)
 	}
 }
