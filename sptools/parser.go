@@ -74,6 +74,14 @@ const (
 	StringLit
 	BoolLit
 )
+var LitKindToStr = [...]string{
+	IntLit: "int literal",
+	FloatLit: "float literal",
+	CharLit: "char literal",
+	StringLit: "string literal",
+	BoolLit: "bool literal",
+}
+
 
 type (
 	Expr interface {
@@ -85,14 +93,16 @@ type (
 		expr
 	}
 	
-	ViewAsExpr struct {
-		Type TypeExpr
-		X Expr
+	// <T>
+	TypeExpr struct {
+		Tok Token
 		expr
 	}
 	
-	TypeExpr struct {
-		Tok Token
+	// view_as<T>(expr)
+	ViewAsExpr struct {
+		Type Expr // *TypeExpr
+		X Expr
 		expr
 	}
 	
@@ -156,7 +166,7 @@ type expr struct{ node }
 func (*expr) aExpr() {}
 
 
-// Prefix = ( *( '!' | '~' | '-' | '++' | '--' ) ) | ('sizeof' | 'defined' | 'new') Postfix .
+// Prefix = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new') Postfix .
 func (parser *Parser) PrefixExpr() Expr {
 	// certain patterns are allowed to recursively run Prefix.
 	switch t := parser.tokens[parser.idx]; t.Kind {
@@ -330,9 +340,6 @@ func Walk(n Node, visitor func(Node) bool) {
 	}
 	
 	switch ast := n.(type) {
-		//case *BasicLit:
-		//case *Name:
-		//case *ThisExpr:
 		case *CallExpr:
 			Walk(ast.Func, visitor)
 			if ast.ArgList != nil {
@@ -350,6 +357,9 @@ func Walk(n Node, visitor func(Node) bool) {
 			Walk(ast.X, visitor)
 			Walk(ast.Sel, visitor)
 		case *UnaryExpr:
+			Walk(ast.X, visitor)
+		case *ViewAsExpr:
+			Walk(ast.Type, visitor)
 			Walk(ast.X, visitor)
 	}
 }
