@@ -61,8 +61,107 @@ func (parser *Parser) Start() Node {
 }
 
 
-func (parser *Parser) sepList() {
+// statement nodes here.
+// Statement syntax write here.
+type (
+	Stmt interface {
+		Node
+		aStmt()
+	}
+	
+	BadStmt struct {
+		stmt
+	}
+	
+	// { *Stmts }
+	Block struct {
+		Stmts []Stmt
+		stmt
+	}
+	
+	// if cond body [else/else if body]
+	IfStmt struct {
+		Cond, Then, Else Stmt
+		stmt
+	}
+	
+	// while cond body
+	WhileStmt struct {
+		Cond Stmt
+		Body []Stmt
+		Do bool // do-while version.
+		stmt
+	}
+	
+	// for [init]; [cond]; [post] body 
+	ForStmt struct {
+		Init, Cond, Post Stmt
+		Body []Stmt
+		stmt
+	}
+	
+	// expr ';'
+	ExprStmt struct {
+		X Expr
+		stmt
+	}
+	
+	// switch cond body
+	SwitchStmt struct {
+		Cases []Stmt
+		Cond, Default Stmt
+		stmt
+	}
+	
+	// case a[, b, ...z]:
+	CaseStmt struct {
+		Exprs []Expr
+		Body Stmt
+		stmt
+	}
+	
+	// break, continue
+	FlowStmt struct {
+		Kind TokenKind
+		stmt
+	}
+	
+	// Type i;
+	DeclStmt struct {
+		Type, Name Expr
+		Init Expr // can be nil.
+		IsArray bool
+		stmt
+	}
+	
+	// return expr
+	RetExpr struct {
+		X Expr
+		stmt
+	}
+)
+type stmt struct{ node }
+func (*stmt) aStmt() {}
+
+
+// Block = '{' *Statement '}' .
+func (parser *Parser) BlockStmt() Stmt {
+	
 }
+
+/*
+ * Statement = IfStmt | WhileStmt | ForStmt | SwitchStmt | Block |
+ *             RetStmt | AssertStmt | DeclStmt | DeleteStmt | ExprStmt .
+ */
+func (parser *Parser) Statement() Stmt {
+	
+}
+
+// IfStmt = 'if' Expr Block [ 'else' ( IfStmt | Block ) ] .
+func (parser *Parser) DoIf() Stmt {
+	
+}
+
 
 
 // expression nodes here.
@@ -158,14 +257,14 @@ type (
 		expr
 	}
 	
-	// f(a,b,...z);
+	// f(a,b,...z)
 	CallExpr struct {
 		ArgList []Expr // nil means no arguments
 		Func      Expr
 		expr
 	}
 	
-	// this.XXX
+	// this.a
 	ThisExpr struct {
 		expr
 	}
@@ -192,18 +291,34 @@ type expr struct{ node }
 func (*expr) aExpr() {}
 
 
-// Expr = SubMainExpr *( ',' SubMainExpr ) .
+// Expr = AssignExpr *( ',' AssignExpr ) .
 func (parser *Parser) MainExpr() Expr {
-	a := parser.SubMainExpr()
+	a := parser.AssignExpr()
 	if parser.idx < len(parser.tokens) && parser.tokens[parser.idx].Kind==TKComma {
 		c := new(CommaExpr)
 		copyPosToNode(&c.node, parser.tokens[parser.idx])
 		c.Exprs = append(c.Exprs, a)
 		for parser.idx < len(parser.tokens) && parser.tokens[parser.idx].Kind==TKComma {
 			parser.idx++
-			c.Exprs = append(c.Exprs, parser.SubMainExpr())
+			c.Exprs = append(c.Exprs, parser.AssignExpr())
 		}
 		a = c
+	}
+	return a
+}
+
+// AssignExpr = SubMainExpr *( '['+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>' | '>>>' ] =' SubMainExpr ) .
+func (parser *Parser) AssignExpr() Expr {
+	a := parser.SubMainExpr()
+	for parser.idx < len(parser.tokens) && (parser.tokens[parser.idx].Kind >= TKAssign && parser.tokens[parser.idx].Kind <= TKShLRA) {
+		t := parser.tokens[parser.idx]
+		parser.idx++
+		assign_expr := new(BinExpr)
+		copyPosToNode(&assign_expr.node, t)
+		assign_expr.L = a
+		assign_expr.Kind = t.Kind
+		assign_expr.R = parser.SubMainExpr()
+		a = assign_expr
 	}
 	return a
 }
