@@ -565,7 +565,7 @@ func (tok *Token) IsType() bool {
 	switch tok.Kind {
 		case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
 			fallthrough
-		case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKAny:
+		case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKAny, TKVoid:
 			return true
 		default:
 			return false

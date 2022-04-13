@@ -9,7 +9,7 @@ import (
 
 
 func main() {
-	lexing_flags := SPTools.LEXFLAG_PREPROCESS | SPTools.LEXFLAG_STRIPNEWLINES
+	lexing_flags := SPTools.LEXFLAG_PREPROCESS
 	if sp_plugin := SPTools.ParseFile(os.Args[1], lexing_flags); sp_plugin != nil {
 		SPTools.PrintNode(sp_plugin, 0)
 	} else {

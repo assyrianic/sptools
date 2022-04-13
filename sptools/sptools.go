@@ -51,7 +51,6 @@ func loadFile(filename string) (string, string) {
 
 const (
 	LEXFLAG_PREPROCESS    = (1 << iota)
-	LEXFLAG_STRIPNEWLINES = (1 << iota)
 	LEXFLAG_STRIPCOMMENTS = (1 << iota)
 	LEXFLAG_ALL           = -1
 )
@@ -69,9 +68,7 @@ func LexFile(filename string, flags int) ([]Token, bool) {
 	tokens = ConcatStringLiterals(tokens)
 	if flags & LEXFLAG_PREPROCESS > 0 {
 		if output, res := Preprocess(tokens); res {
-			if flags & LEXFLAG_STRIPNEWLINES > 0 {
-				output = StripNewlineTokens(output)
-			}
+			output = StripNewlineTokens(output)
 			tokens = output
 		} else {
 			return tokens, false
