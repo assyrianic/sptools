@@ -6,7 +6,7 @@
 	int[] a[1],b={1,2,...},c={a=1, b=2, c=3},d;
 	char x[]="kektus";
 	i++, ++i;
-	F();
+	F(.a=b, .c = new int[100]);
 	
 	for (1;;) {}
 	for (;1;) {}
