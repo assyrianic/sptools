@@ -42,13 +42,26 @@ func (parser *Parser) checkTokenLen(offset ...int) bool {
 	return parser.idx+i < len(parser.tokens)
 }
 
+func (parser *Parser) GetToken(offset int) Token {
+	tlen := len(parser.tokens)
+	if parser.idx + offset >= tlen {
+		return parser.tokens[tlen - 1]
+	} else {
+		return parser.tokens[parser.idx + offset]
+	}
+}
+
+func (parser *Parser) Advance() Token {
+	parser.idx++
+	return parser.GetToken(0)
+}
+
 func (parser *Parser) getEndToken() Token {
 	return parser.tokens[len(parser.tokens)-1]
 }
 
 func (parser *Parser) got(tk TokenKind) bool {
-	token := parser.tokens[parser.idx];
-	if token.Kind==tk {
+	if token := parser.GetToken(0); token.Kind==tk {
 		parser.idx++
 		return true
 	}
@@ -56,7 +69,7 @@ func (parser *Parser) got(tk TokenKind) bool {
 }
 
 func (parser *Parser) syntaxErr(msg string, args ...interface{}) {
-	token := parser.tokens[parser.idx]
+	token := parser.GetToken(0)
 	writeMsg(&parser.Errs, os.Stdout, *token.Path, "syntax error", COLOR_RED, &token.Line, &token.Col, msg, args...)
 }
 
@@ -221,6 +234,16 @@ type (
 		IsRef bool
 		spec
 	}
+	
+	// typedef name = type;
+	TypedefSpec struct {
+		spec
+	}
+	
+	// typeset name {}
+	TypeSetSpec struct {
+		spec
+	}
 )
 type spec struct{ node }
 func (*spec) aSpec() {}
@@ -229,8 +252,8 @@ func (*spec) aSpec() {}
 // StorageClass = 'native' | 'forward' | 'const' | 'static' | 'stock' | 'public' | 'private' | 'protected' | 'readonly' | 'sealed' | 'virtual' .
 func (parser *Parser) StorageClass() StorageClassFlags {
 	flags := StorageClassFlags(0)
-	for parser.checkTokenLen() && parser.tokens[parser.idx].IsStorageClass() {
-		flags |= storageClassFromToken(parser.tokens[parser.idx])
+	for parser.GetToken(0).IsStorageClass() {
+		flags |= storageClassFromToken(parser.GetToken(0))
 		parser.idx++
 	}
 	return flags
@@ -239,23 +262,21 @@ func (parser *Parser) StorageClass() StorageClassFlags {
 // AbstractDecl = Type [ *'[]' | '&' ] .
 func (parser *Parser) AbstractDecl() Spec {
 	tspec := new(TypeSpec)
-	copyPosToNode(&tspec.node, parser.tokens[parser.idx])
+	copyPosToNode(&tspec.node, parser.GetToken(0))
 	// next get type name.
 	tspec.Type = parser.TypeExpr(false)
 	
 	// check pre-identifier array dims or ampersand reference.
-	if parser.checkTokenLen() {
-		if t := parser.tokens[parser.idx]; t.Kind==TKLBrack {
-			for parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKLBrack {
-				tspec.Dims++
-				parser.want(TKLBrack, "[")
-				parser.want(TKRBrack, "]")
-				tspec.IsRef = true
-			}
-		} else if t.Kind==TKAnd {
+	if t := parser.GetToken(0); t.Kind==TKLBrack {
+		for parser.GetToken(0).Kind==TKLBrack {
+			tspec.Dims++
+			parser.want(TKLBrack, "[")
+			parser.want(TKRBrack, "]")
 			tspec.IsRef = true
-			parser.idx++
 		}
+	} else if t.Kind==TKAnd {
+		tspec.IsRef = true
+		parser.idx++
 	}
 	return tspec
 }
@@ -264,7 +285,7 @@ func (parser *Parser) AbstractDecl() Spec {
 // VarDecl = VarSpec VarDeclarator .
 func (parser *Parser) DoVarDecl() Decl {
 	vdecl := new(VarDecl)
-	copyPosToNode(&vdecl.node, parser.tokens[parser.idx])
+	copyPosToNode(&vdecl.node, parser.GetToken(0))
 	vdecl.VarType = parser.DoVarSpec()
 	parser.DoVarDeclarator(vdecl)
 	return vdecl
@@ -273,7 +294,7 @@ func (parser *Parser) DoVarDecl() Decl {
 // VarSpec = *StorageClass AbstractDecl .
 func (parser *Parser) DoVarSpec() Spec {
 	vspec := new(VarSpec)
-	copyPosToNode(&vspec.node, parser.tokens[parser.idx])
+	copyPosToNode(&vspec.node, parser.GetToken(0))
 	vspec.ClassFlags = parser.StorageClass()
 	vspec.Type = parser.AbstractDecl()
 	return vspec
@@ -283,37 +304,33 @@ func (parser *Parser) DoVarSpec() Spec {
 // Initializer = '=' SubMainExpr | '{' Expr [ ',' ( '...' | *Expr ) ] '}' .
 func (parser *Parser) DoVarDeclarator(vdecl *VarDecl) {
 	vdecl.Names = append(vdecl.Names, parser.SubMainExpr())
-	if parser.checkTokenLen() {
-		if parser.tokens[parser.idx].Kind==TKAssign {
-			parser.idx++
-			vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
-		} else {
-			vdecl.Inits = append(vdecl.Inits, nil)
-		}
+	if parser.GetToken(0).Kind==TKAssign {
+		parser.idx++
+		vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
+	} else {
+		vdecl.Inits = append(vdecl.Inits, nil)
 	}
 	
 	// TODO: clean this up.
-	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKComma {
-		for parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKComma {
+	if parser.GetToken(0).Kind==TKComma {
+		for parser.GetToken(0).Kind==TKComma {
 			parser.idx++
 			vdecl.Names = append(vdecl.Names, parser.SubMainExpr())
-			if parser.checkTokenLen() {
-				if parser.tokens[parser.idx].Kind==TKAssign {
+			if parser.GetToken(0).Kind==TKAssign {
+				parser.idx++
+				// { expr list } .
+				if parser.GetToken(0).Kind==TKLCurl {
 					parser.idx++
-					// { expr list } .
-					if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKLCurl {
-						parser.idx++
-						for parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKRCurl {
-							vdecl.Inits = append(vdecl.Inits, parser.MainExpr())
-						}
-						parser.want(TKRCurl, "}")
-					} else {
-						// = expr .
-						vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
+					for parser.GetToken(0).Kind != TKRCurl {
+						vdecl.Inits = append(vdecl.Inits, parser.MainExpr())
 					}
+					parser.want(TKRCurl, "}")
 				} else {
-					vdecl.Inits = append(vdecl.Inits, nil)
+					// = expr .
+					vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
 				}
+			} else {
+				vdecl.Inits = append(vdecl.Inits, nil)
 			}
 		}
 	}
@@ -323,7 +340,7 @@ func (parser *Parser) DoVarDeclarator(vdecl *VarDecl) {
 // FuncDecl = *StorageClass AbstractDecl Ident '(' *VarDecl ')' [ Initializer | Block | ';' ] .
 func (parser *Parser) FuncDeclaration() Decl {
 	fdecl := new(FuncDecl)
-	copyPosToNode(&fdecl.node, parser.tokens[parser.idx])
+	copyPosToNode(&fdecl.node, parser.GetToken(0))
 	return fdecl
 }
 
@@ -433,7 +450,7 @@ func (*stmt) aStmt() {}
 func (parser *Parser) noSemi() Stmt {
 	parser.syntaxErr("missing ';' semicolon.")
 	bad := new(BadStmt)
-	copyPosToNode(&bad.node, parser.tokens[parser.idx])
+	copyPosToNode(&bad.node, parser.GetToken(0))
 	return bad
 }
 
@@ -442,9 +459,9 @@ func (parser *Parser) DoBlock() Stmt {
 	block := new(BlockStmt)
 	parser.want(TKLCurl, "{")
 	copyPosToNode(&block.node, parser.tokens[parser.idx-1])
-	for parser.idx < len(parser.tokens) && parser.tokens[parser.idx].Kind != TKRCurl {
+	for parser.GetToken(0).Kind != TKRCurl {
 		time.Sleep(400 * time.Millisecond)
-		fmt.Printf("current tok: %v\n", parser.tokens[parser.idx])
+		fmt.Printf("current tok: %v\n", parser.GetToken(0))
 		n := parser.Statement()
 		if n==nil {
 			fmt.Printf("n == nil\n")
@@ -466,7 +483,7 @@ func (parser *Parser) Statement() Stmt {
 		copyPosToNode(&bad.node, parser.getEndToken())
 		return bad
 	}
-	switch t := parser.tokens[parser.idx]; t.Kind {
+	switch t := parser.GetToken(0); t.Kind {
 		case TKConst, TKPublic, TKPrivate, TKProtected, TKForward, TKNative, TKReadOnly, TKSealed, TKVirtual:
 			fallthrough
 		case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
@@ -497,7 +514,7 @@ func (parser *Parser) Statement() Stmt {
 			ret := new(RetStmt)
 			copyPosToNode(&ret.node, t)
 			parser.idx++
-			if parser.tokens[parser.idx].Kind != TKSemi {
+			if parser.GetToken(0).Kind != TKSemi {
 				ret.X = parser.MainExpr()
 				if !parser.got(TKSemi) {
 					return parser.noSemi()
@@ -514,7 +531,7 @@ func (parser *Parser) Statement() Stmt {
 			parser.idx++
 			parser.want(TKLParen, "(")
 			stasrt.A = parser.MainExpr()
-			if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKComma {
+			if parser.GetToken(0).Kind==TKComma {
 				parser.idx++
 				stasrt.B = parser.MainExpr()
 			}
@@ -571,7 +588,7 @@ func (parser *Parser) Statement() Stmt {
 			fallthrough
 		default:
 			bad := new(BadStmt)
-			copyPosToNode(&bad.node, parser.tokens[parser.idx])
+			copyPosToNode(&bad.node, parser.GetToken(0))
 			parser.idx++
 			return bad
 	}
@@ -613,13 +630,13 @@ func (parser *Parser) DoIf() Stmt {
 	ifstmt.Cond = parser.MainExpr()
 	parser.want(TKRParen, ")")
 	ifstmt.Then = parser.Statement()
-	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKElse {
+	if parser.GetToken(0).Kind==TKElse {
 		parser.idx++
 		ifstmt.Else = parser.Statement()
 		// personally, I'd prefer to fix the not-needing-{ thing but whatever.
 		/*
 		if parser.checkTokenLen() {
-			switch t := parser.tokens[parser.idx]; t.Kind {
+			switch t := parser.GetToken(0); t.Kind {
 				case TKIf:
 					ifstmt.Else = parser.DoIf()
 				case TKLCurl:
@@ -642,22 +659,19 @@ func (parser *Parser) DoFor() Stmt {
 	forstmt := new(ForStmt)
 	copyPosToNode(&forstmt.node, parser.tokens[parser.idx-1])
 	parser.want(TKLParen, "(")
-	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKSemi {
-		///is_decl := false
-		///if t := parser.tokens[parser.idx]; t.IsType() || t.Kind==TKIdent {
-			// https://github.com/alliedmodders/sourcepawn/blob/master/compiler/parser.cpp#L1646
-			// checks if token is 'object' keyword.
-			// d := parser.Decl()
-			///parser.idx++
-		// For now, just get the expression. Finish out after making Decls.
-		forstmt.Init = parser.MainExpr()
+	if parser.GetToken(0).Kind != TKSemi {
+		if t := parser.GetToken(0); t.IsType() || t.IsStorageClass() || (t.Kind==TKIdent && parser.GetToken(1).Kind==TKIdent) {
+			forstmt.Init = parser.DoVarDecl()
+		} else {
+			forstmt.Init = parser.MainExpr()
+		}
 	}
 	parser.want(TKSemi, ";")
-	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKSemi {
+	if parser.GetToken(0).Kind != TKSemi {
 		forstmt.Cond = parser.MainExpr()
 	}
 	parser.want(TKSemi, ";")
-	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKRParen {
+	if parser.GetToken(0).Kind != TKRParen {
 		forstmt.Post = parser.MainExpr()
 	}
 	parser.want(TKRParen, ")")
@@ -676,12 +690,12 @@ func (parser *Parser) Switch() Stmt {
 	parser.want(TKRParen, ")")
 	parser.want(TKLCurl, "{")
 	bad_case := false
-	for parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKRCurl {
-		switch t := parser.tokens[parser.idx]; t.Kind {
+	for parser.GetToken(0).Kind != TKRCurl {
+		switch t := parser.GetToken(0); t.Kind {
 			case TKCase:
 				// next do case expressions:
 				_case := new(CaseStmt)
-				copyPosToNode(&_case.node, parser.tokens[parser.idx])
+				copyPosToNode(&_case.node, parser.GetToken(0))
 				parser.idx++
 				case_expr := parser.MainExpr()
 				if _, is_bad := case_expr.(*BadExpr); is_bad {
@@ -700,14 +714,14 @@ func (parser *Parser) Switch() Stmt {
 			default:
 				parser.syntaxErr("bad switch label.")
 				bad := new(BadStmt)
-				copyPosToNode(&bad.node, parser.tokens[parser.idx])
+				copyPosToNode(&bad.node, parser.GetToken(0))
 				return bad
 		}
 	}
 errd_case:
 	if bad_case {
 		bad := new(BadStmt)
-		copyPosToNode(&bad.node, parser.tokens[parser.idx])
+		copyPosToNode(&bad.node, parser.GetToken(0))
 		return bad
 	}
 	return swtch
@@ -849,11 +863,11 @@ func (*expr) aExpr() {}
 // Expr = AssignExpr *( ',' AssignExpr ) .
 func (parser *Parser) MainExpr() Expr {
 	a := parser.AssignExpr()
-	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKComma {
+	if parser.GetToken(0).Kind==TKComma {
 		c := new(CommaExpr)
-		copyPosToNode(&c.node, parser.tokens[parser.idx])
+		copyPosToNode(&c.node, parser.GetToken(0))
 		c.Exprs = append(c.Exprs, a)
-		for parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKComma {
+		for parser.GetToken(0).Kind==TKComma {
 			parser.idx++
 			c.Exprs = append(c.Exprs, parser.AssignExpr())
 		}
@@ -865,8 +879,7 @@ func (parser *Parser) MainExpr() Expr {
 // AssignExpr = SubMainExpr *( '['+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>' | '>>>' ] =' SubMainExpr ) .
 func (parser *Parser) AssignExpr() Expr {
 	a := parser.SubMainExpr()
-	for parser.checkTokenLen() && (parser.tokens[parser.idx].Kind >= TKAssign && parser.tokens[parser.idx].Kind <= TKShLRA) {
-		t := parser.tokens[parser.idx]
+	for t := parser.GetToken(0); t.Kind >= TKAssign && t.Kind <= TKShLRA; t = parser.GetToken(0) {
 		parser.idx++
 		assign_expr := new(BinExpr)
 		copyPosToNode(&assign_expr.node, t)
@@ -881,7 +894,7 @@ func (parser *Parser) AssignExpr() Expr {
 // SubMainExpr = LogicalOrExpr [ TernaryExpr ] .
 func (parser *Parser) SubMainExpr() Expr {
 	a := parser.LogicalOrExpr()
-	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKQMark {
+	if parser.GetToken(0).Kind==TKQMark {
 		// ternary
 		a = parser.DoTernary(a)
 	}
@@ -910,7 +923,7 @@ func (parser *Parser) LogicalOrExpr() Expr {
 	}
 	
 	e := parser.LogicalAndExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && t.Kind==TKOrL; t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKOrL; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -931,7 +944,7 @@ func (parser *Parser) LogicalAndExpr() Expr {
 	}
 	
 	e := parser.EqualExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && t.Kind==TKAndL; t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKAndL; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -952,7 +965,7 @@ func (parser *Parser) EqualExpr() Expr {
 	}
 	
 	e := parser.RelExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && (t.Kind==TKEq || t.Kind==TKNotEq); t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKEq || t.Kind==TKNotEq; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -973,7 +986,7 @@ func (parser *Parser) RelExpr() Expr {
 	}
 	
 	e := parser.BitOrExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && (t.Kind>=TKLess && t.Kind<=TKLessE); t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind>=TKLess && t.Kind<=TKLessE; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -994,7 +1007,7 @@ func (parser *Parser) BitOrExpr() Expr {
 	}
 	
 	e := parser.BitXorExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && t.Kind==TKOr; t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKOr; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -1015,7 +1028,7 @@ func (parser *Parser) BitXorExpr() Expr {
 	}
 	
 	e := parser.BitAndExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && t.Kind==TKXor; t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKXor; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -1036,7 +1049,7 @@ func (parser *Parser) BitAndExpr() Expr {
 	}
 	
 	e := parser.ShiftExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && t.Kind==TKAnd; t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKAnd; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -1057,7 +1070,7 @@ func (parser *Parser) ShiftExpr() Expr {
 	}
 	
 	e := parser.AddExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && (t.Kind>=TKShAL && t.Kind<=TKShLR); t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind>=TKShAL && t.Kind<=TKShLR; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -1078,7 +1091,7 @@ func (parser *Parser) AddExpr() Expr {
 	}
 	
 	e := parser.MulExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && (t.Kind==TKAdd || t.Kind==TKSub); t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKAdd || t.Kind==TKSub; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -1099,7 +1112,7 @@ func (parser *Parser) MulExpr() Expr {
 	}
 	
 	e := parser.PrefixExpr()
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && (t.Kind==TKMul || t.Kind==TKDiv || t.Kind==TKMod); t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKMul || t.Kind==TKDiv || t.Kind==TKMod; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -1114,7 +1127,7 @@ func (parser *Parser) MulExpr() Expr {
 // Prefix = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new' ) Postfix .
 func (parser *Parser) PrefixExpr() Expr {
 	// certain patterns are allowed to recursively run Prefix.
-	switch t := parser.tokens[parser.idx]; t.Kind {
+	switch t := parser.GetToken(0); t.Kind {
 		case TKIncr, TKDecr, TKNot, TKCompl, TKSub, TKSizeof, TKDefined, TKNew:
 			n := new(UnaryExpr)
 			parser.idx++
@@ -1139,7 +1152,7 @@ func (parser *Parser) TypeExpr(need_carots bool) Expr {
 	if need_carots {
 		parser.want(TKLess, "<")
 	}
-	if t := parser.tokens[parser.idx]; t.IsType() || t.Kind==TKIdent {
+	if t := parser.GetToken(0); t.IsType() || t.Kind==TKIdent {
 		texp := new(TypedExpr)
 		copyPosToNode(&texp.node, t)
 		texp.Tok = t
@@ -1173,7 +1186,7 @@ func (parser *Parser) ViewAsExpr() Expr {
 // Postfix = Primary *( '.' identifier | '[' Expr ']' | '(' [ ExprList ] ')' | '::' identifier | '++' | '--' ) .
 func (parser *Parser) PostfixExpr() Expr {
 	n := Expr(nil)
-	if t := parser.tokens[parser.idx]; t.Kind==TKViewAs {
+	if t := parser.GetToken(0); t.Kind==TKViewAs {
 		n = parser.ViewAsExpr()
 	} else {
 		n = parser.PrimaryExpr()
@@ -1183,7 +1196,7 @@ func (parser *Parser) PostfixExpr() Expr {
 		return n
 	}
 	
-	for t := parser.tokens[parser.idx]; parser.checkTokenLen() && (t.Kind==TKDot || t.Kind==TKLBrack || t.Kind==TKLParen || t.Kind==TK2Colons || t.Kind==TKIncr || t.Kind==TKDecr); t = parser.tokens[parser.idx] {
+	for t := parser.GetToken(0); t.Kind==TKDot || t.Kind==TKLBrack || t.Kind==TKLParen || t.Kind==TK2Colons || t.Kind==TKIncr || t.Kind==TKDecr; t = parser.GetToken(0) {
 		parser.idx++
 		switch t.Kind {
 			case TKDot:
@@ -1202,7 +1215,7 @@ func (parser *Parser) PostfixExpr() Expr {
 				arr := new(IndexExpr)
 				copyPosToNode(&arr.node, t)
 				arr.X = n
-				if parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKRBrack {
+				if parser.GetToken(0).Kind != TKRBrack {
 					arr.Index = parser.MainExpr()
 				}
 				parser.want(TKRBrack, "]")
@@ -1218,18 +1231,18 @@ func (parser *Parser) PostfixExpr() Expr {
 				call := new(CallExpr)
 				copyPosToNode(&call.node, t)
 				call.Func = n
-				for parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKRParen {
+				for parser.GetToken(0).Kind != TKRParen {
 					if len(call.ArgList) > 0 {
 						parser.want(TKComma, ",")
 					}
 					// SP allows setting your params by name.
 					// '.param_name = expression'
 					// '.' Name '=' Expr
-					if parser.tokens[parser.idx].Kind==TKDot {
+					if parser.GetToken(0).Kind==TKDot {
 						parser.idx++
 						named_arg := new(NamedArg)
 						copyPosToNode(&named_arg.node, parser.tokens[parser.idx-1])
-						if iden := parser.tokens[parser.idx]; iden.Kind != TKIdent {
+						if iden := parser.GetToken(0); iden.Kind != TKIdent {
 							parser.syntaxErr("expected identifier for named arg.")
 						}
 						named_arg.Param = parser.PrimaryExpr()
@@ -1250,12 +1263,16 @@ func (parser *Parser) PostfixExpr() Expr {
 // Primary = int_lit | rune_lit | string_lit | identifier | 'true' | 'false' | 'this' | 'null' | '...' | '(' Expr ')' .
 func (parser *Parser) PrimaryExpr() Expr {
 	ret_expr := Expr(nil)
-	if !parser.checkTokenLen() || parser.tokens[parser.idx].Kind==TKEoF {
+	if !parser.checkTokenLen() || parser.GetToken(0).Kind==TKEoF {
 		bad := new(BadExpr)
 		copyPosToNode(&bad.node, parser.getEndToken())
 		return bad
 	}
-	switch prim := parser.tokens[parser.idx]; prim.Kind {
+	
+	if parser.GetToken(0).IsType() {
+		return parser.TypeExpr(false)
+	}
+	switch prim := parser.GetToken(0); prim.Kind {
 		case TKEllipses:
 			ell := new(EllipsesExpr)
 			copyPosToNode(&ell.node, prim)

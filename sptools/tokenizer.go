@@ -542,23 +542,23 @@ type Token struct {
 	Kind      TokenKind
 }
 
-func (tok *Token) IsKeyword() bool {
+func (tok Token) IsKeyword() bool {
 	return tok.Kind >= TKAcquire && tok.Kind <= TKWith
 }
 
-func (tok *Token) IsLiteral() bool {
+func (tok Token) IsLiteral() bool {
 	return tok.Kind >= TKIdent && tok.Kind <= TKCharLit
 }
 
-func (tok *Token) IsDelimiter() bool {
+func (tok Token) IsDelimiter() bool {
 	return tok.Kind >= TKLParen && tok.Kind <= TKRCurl
 }
 
-func (tok *Token) IsOperator() bool {
+func (tok Token) IsOperator() bool {
 	return tok.Kind >= TKAdd && tok.Kind <= TK2Colons
 }
 
-func (tok *Token) IsType() bool {
+func (tok Token) IsType() bool {
 	switch tok.Kind {
 		case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
 			fallthrough
@@ -569,7 +569,7 @@ func (tok *Token) IsType() bool {
 	}
 }
 
-func (tok *Token) IsStorageClass() bool {
+func (tok Token) IsStorageClass() bool {
 	switch tok.Kind {
 		case TKConst, TKStock, TKPublic, TKPrivate, TKProtected, TKStatic:
 			fallthrough
