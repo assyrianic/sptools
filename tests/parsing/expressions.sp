@@ -1,4 +1,18 @@
 {
+	const char[] valve_path_id="GAME";
+	static public int p, j = 1, l[3] = 5;
+	int[] a[1],b={1,2,...},c,d;
+	char x[]="kektus";
+	i++, ++i;
+	F();
+	/*
+	for (;;) {}
+	for (1;;) {}
+	for (;1;) {}
+	for (;;1) {}
+	for (;2;1) {}
+	for (2;;1) {}
+	for (2;3;1) {}
 	return;
 	return foo.bar(true);
 	while (1) {}
@@ -35,4 +49,5 @@
 		case 1,2,3: return bart;
 		default: return baz;
 	}
+	*/
 }

@@ -75,6 +75,259 @@ func (parser *Parser) Start() Node {
 }
 
 
+// top-level plugin.
+type File struct {
+	Decls []Decl
+	node
+}
+
+
+type StorageClassFlags int
+const (
+	IsPublic = StorageClassFlags(1 << iota)
+	IsConst
+	IsNative
+	IsForward
+	IsStatic
+	IsStock
+	IsPrivate
+	IsProtected
+	IsReadOnly
+	IsSealed
+	IsVirtual
+)
+func storageClassFromToken(tok Token) StorageClassFlags {
+	switch tok.Kind {
+		case TKConst:
+			return IsConst
+		case TKStock:
+			return IsStock
+		case TKPublic:
+			return IsPublic
+		case TKPrivate:
+			return IsPrivate
+		case TKProtected:
+			return IsProtected
+		case TKStatic:
+			return IsStatic
+		case TKForward:
+			return IsForward
+		case TKNative:
+			return IsNative
+		case TKReadOnly:
+			return IsReadOnly
+		case TKSealed:
+			return IsSealed
+		case TKVirtual:
+			return IsVirtual
+		default:
+			return StorageClassFlags(0)
+	}
+}
+
+
+// Declarations here.
+type (
+	Decl interface {
+		Node
+		aDecl()
+	}
+	
+	TypeDecl struct {
+		Type Spec // 
+		decl
+	}
+	
+	// name1, name2[n], name3=expr;
+	VarDecl struct {
+		VarType Spec // *VarSpec
+		Names, Inits []Expr
+		// nil index if there was no initializer/arraydims.
+		decl
+	}
+	
+	// class type name() {}
+	// class type name();
+	// class type name1() = name2;
+	FuncDecl struct {
+		RetType Spec // *TypeSpec.
+		Params []VarDecl
+		Body Node // Expr if alias, Stmt if body, nil if forward/native.
+		ClassFlags StorageClassFlags
+		IsOpOverload bool
+		decl
+	}
+)
+type decl struct{ node }
+func (*decl) aDecl() {}
+
+
+// Specifications here.
+// Spec represents a constant, type, or variable declaration.
+type (
+	Spec interface {
+		Node
+		aSpec()
+	}
+	
+	// represents a partial variable declaration.
+	VarSpec struct {
+		Type Spec // *TypeSpec
+		ClassFlags StorageClassFlags
+		spec
+	}
+	
+	// enum Name { ... }
+	// enum { ... }
+	EnumSpec struct {
+		Ident Expr // can be nil.
+		Values []Expr
+		spec
+	}
+	
+	// struct Name { ... }
+	// enum struct Name { ... }
+	StructSpec struct {
+		Ident Expr
+		IsEnum bool
+		Fields []Decl // []*VarDecl
+		Methods []Decl // []*FuncDecl
+		spec
+	}
+	
+	// methodmap Name [< type] { ... };
+	MethodMapSpec struct {
+		Ident, Inheritor Expr
+		spec
+	}
+	
+	// property Type name {}
+	MethodMapPropSpec struct {
+		Type Spec // *TypeSpec
+		Ident Expr
+		spec
+	}
+	
+	// using name;
+	UsingSpec struct {
+		Namespace Expr
+		spec
+	}
+	
+	// type[]&
+	TypeSpec struct {
+		Type Expr
+		Dims int
+		IsRef bool
+		spec
+	}
+)
+type spec struct{ node }
+func (*spec) aSpec() {}
+
+
+// StorageClass = 'native' | 'forward' | 'const' | 'static' | 'stock' | 'public' | 'private' | 'protected' | 'readonly' | 'sealed' | 'virtual' .
+func (parser *Parser) StorageClass() StorageClassFlags {
+	flags := StorageClassFlags(0)
+	for parser.checkTokenLen() && parser.tokens[parser.idx].IsStorageClass() {
+		flags |= storageClassFromToken(parser.tokens[parser.idx])
+		parser.idx++
+	}
+	return flags
+}
+
+// AbstractDecl = Type [ *'[]' | '&' ] .
+func (parser *Parser) AbstractDecl() Spec {
+	tspec := new(TypeSpec)
+	copyPosToNode(&tspec.node, parser.tokens[parser.idx])
+	// next get type name.
+	tspec.Type = parser.TypeExpr(false)
+	
+	// check pre-identifier array dims or ampersand reference.
+	if parser.checkTokenLen() {
+		if t := parser.tokens[parser.idx]; t.Kind==TKLBrack {
+			for parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKLBrack {
+				tspec.Dims++
+				parser.want(TKLBrack, "[")
+				parser.want(TKRBrack, "]")
+				tspec.IsRef = true
+			}
+		} else if t.Kind==TKAnd {
+			tspec.IsRef = true
+			parser.idx++
+		}
+	}
+	return tspec
+}
+
+
+// VarDecl = VarSpec VarDeclarator .
+func (parser *Parser) DoVarDecl() Decl {
+	vdecl := new(VarDecl)
+	copyPosToNode(&vdecl.node, parser.tokens[parser.idx])
+	vdecl.VarType = parser.DoVarSpec()
+	parser.DoVarDeclarator(vdecl)
+	return vdecl
+}
+
+// VarSpec = *StorageClass AbstractDecl .
+func (parser *Parser) DoVarSpec() Spec {
+	vspec := new(VarSpec)
+	copyPosToNode(&vspec.node, parser.tokens[parser.idx])
+	vspec.ClassFlags = parser.StorageClass()
+	vspec.Type = parser.AbstractDecl()
+	return vspec
+}
+
+// VarDeclarator = Ident [ IndexExpr ] [ Initializer ] *( ',' VarDeclarator ) .
+// Initializer = '=' SubMainExpr | '{' Expr [ ',' ( '...' | *Expr ) ] '}' .
+func (parser *Parser) DoVarDeclarator(vdecl *VarDecl) {
+	vdecl.Names = append(vdecl.Names, parser.SubMainExpr())
+	if parser.checkTokenLen() {
+		if parser.tokens[parser.idx].Kind==TKAssign {
+			parser.idx++
+			vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
+		} else {
+			vdecl.Inits = append(vdecl.Inits, nil)
+		}
+	}
+	
+	// TODO: clean this up.
+	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKComma {
+		for parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKComma {
+			parser.idx++
+			vdecl.Names = append(vdecl.Names, parser.SubMainExpr())
+			if parser.checkTokenLen() {
+				if parser.tokens[parser.idx].Kind==TKAssign {
+					parser.idx++
+					// { expr list } .
+					if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKLCurl {
+						parser.idx++
+						for parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKRCurl {
+							vdecl.Inits = append(vdecl.Inits, parser.MainExpr())
+						}
+						parser.want(TKRCurl, "}")
+					} else {
+						// = expr .
+						vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
+					}
+				} else {
+					vdecl.Inits = append(vdecl.Inits, nil)
+				}
+			}
+		}
+	}
+}
+
+
+// FuncDecl = *StorageClass AbstractDecl Ident '(' *VarDecl ')' [ Initializer | Block | ';' ] .
+func (parser *Parser) FuncDeclaration() Decl {
+	fdecl := new(FuncDecl)
+	copyPosToNode(&fdecl.node, parser.tokens[parser.idx])
+	return fdecl
+}
+
+
 // statement nodes here.
 // Statement syntax write here.
 type (
@@ -115,7 +368,7 @@ type (
 	
 	// for [init] ; [cond] ; [post] body 
 	ForStmt struct {
-		Init Stmt
+		Init Node
 		Cond, Post Expr
 		Body Stmt
 		stmt
@@ -137,7 +390,7 @@ type (
 	
 	// case a[, b, ...z]:
 	CaseStmt struct {
-		Exprs []Expr
+		Case Expr // single or comma expression.
 		Body Stmt
 		stmt
 	}
@@ -150,13 +403,12 @@ type (
 	
 	// Type i;
 	DeclStmt struct {
-		Type, Name Expr
-		Init Expr // can be nil.
-		IsArray bool
+		D Decl // VarSpec, TypeDecl, or FuncDecl
 		stmt
 	}
 	
-	// return [i];
+	// return i;
+	// return;
 	RetStmt struct {
 		X Expr
 		stmt
@@ -215,19 +467,33 @@ func (parser *Parser) Statement() Stmt {
 		return bad
 	}
 	switch t := parser.tokens[parser.idx]; t.Kind {
+		case TKConst, TKPublic, TKPrivate, TKProtected, TKForward, TKNative, TKReadOnly, TKSealed, TKVirtual:
+			fallthrough
+		case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
+			fallthrough
+		case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKVoid, TKObject, TKDecl, TKStatic, TKVar:
+			// parse declaration.
+			vardecl := new(DeclStmt)
+			copyPosToNode(&vardecl.node, t)
+			vardecl.D = parser.DoVarDecl()
+			if !parser.got(TKSemi) {
+				return parser.noSemi()
+			}
+			return vardecl
 		case TKLCurl:
 			return parser.DoBlock()
 		case TKIf:
 			return parser.DoIf()
 		case TKDo, TKWhile:
 			return parser.While(t)
-		///case TKFor:
-		///	return parser.DoFor()
+		case TKFor:
+			return parser.DoFor()
 		///case TKForEach:
 			// ForEachStmt = 'foreach' '(' DeclStmt 'in' Expr ')' Statement.
 		case TKSwitch:
 			return parser.Switch()
 		case TKReturn:
+			// RetStmt = 'return' [ Expr ] ';' .
 			ret := new(RetStmt)
 			copyPosToNode(&ret.node, t)
 			parser.idx++
@@ -242,7 +508,7 @@ func (parser *Parser) Statement() Stmt {
 				return ret
 			}
 		case TKStaticAssert:
-			// 'static_assert' '(' Expr [ ',' Expr ] ')' ';'
+			// StaticAssertStmt = 'static_assert' '(' Expr [ ',' Expr ] ')' ';' .
 			stasrt := new(StaticAssertStmt)
 			copyPosToNode(&stasrt.node, t)
 			parser.idx++
@@ -258,6 +524,7 @@ func (parser *Parser) Statement() Stmt {
 			}
 			return stasrt
 		case TKAssert:
+			// AssertStmt = 'assert' Expr ';' .
 			asrt := new(AssertStmt)
 			copyPosToNode(&asrt.node, t)
 			parser.idx++
@@ -267,6 +534,7 @@ func (parser *Parser) Statement() Stmt {
 			}
 			return asrt
 		case TKDelete:
+			// DeleteStmt = 'delete' Expr ';' .
 			del := new(DeleteStmt)
 			copyPosToNode(&del.node, t)
 			parser.idx++
@@ -276,7 +544,29 @@ func (parser *Parser) Statement() Stmt {
 			}
 			parser.idx++
 			return del
-		case TKCase, TKDefault:
+		case TKIdent:
+			// vast majority of the times,
+			// an expression starts with an identifier.
+			if parser.checkTokenLen(1) && parser.tokens[parser.idx+1].Kind==TKIdent {
+				// possible var decl with custom type.
+				vardecl := new(DeclStmt)
+				copyPosToNode(&vardecl.node, t)
+				vardecl.D = parser.DoVarDecl()
+				if !parser.got(TKSemi) {
+					return parser.noSemi()
+				}
+				return vardecl
+			} else {
+				exp := new(ExprStmt)
+				copyPosToNode(&exp.node, t)
+				exp.X = parser.MainExpr()
+				if !parser.got(TKSemi) {
+					return parser.noSemi()
+				}
+				return exp
+			}
+		case TKCase, TKDefault, TKSemi:
+			// lone semicolon is considered an error.
 			parser.idx++
 			fallthrough
 		default:
@@ -353,28 +643,30 @@ func (parser *Parser) DoFor() Stmt {
 	copyPosToNode(&forstmt.node, parser.tokens[parser.idx-1])
 	parser.want(TKLParen, "(")
 	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKSemi {
-		//is_decl := false
-		if t := parser.tokens[parser.idx]; t.IsType() || t.Kind==TKIdent {
+		///is_decl := false
+		///if t := parser.tokens[parser.idx]; t.IsType() || t.Kind==TKIdent {
 			// https://github.com/alliedmodders/sourcepawn/blob/master/compiler/parser.cpp#L1646
 			// checks if token is 'object' keyword.
 			// d := parser.Decl()
 			///parser.idx++
-			parser.want(TKSemi, ";")
-		} else {
-			// finish after decls are done.
-			/**
-			switch t.Kind {
-				case 
-			}
-			*/
-		}
+		// For now, just get the expression. Finish out after making Decls.
+		forstmt.Init = parser.MainExpr()
 	}
-	return nil
+	parser.want(TKSemi, ";")
+	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKSemi {
+		forstmt.Cond = parser.MainExpr()
+	}
+	parser.want(TKSemi, ";")
+	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKRParen {
+		forstmt.Post = parser.MainExpr()
+	}
+	parser.want(TKRParen, ")")
+	forstmt.Body = parser.Statement()
+	return forstmt
 }
 
-// SwitchStmt = 'switch' '(' Expr ')' '{' *CaseClause [ DefaultClause ] '}' .
-// CaseClause = 'case' Expr *[ ( ',' | '..' ) Expr ] ':' Statement .
-// DefaultClause = 'default' ':' Statement .
+// SwitchStmt = 'switch' '(' Expr ')' '{' *CaseClause '}' .
+// CaseClause = 'case' ExprList ':' Statement | 'default' ':' Statement .
 func (parser *Parser) Switch() Stmt {
 	parser.want(TKSwitch, "switch")
 	swtch := new(SwitchStmt)
@@ -391,23 +683,12 @@ func (parser *Parser) Switch() Stmt {
 				_case := new(CaseStmt)
 				copyPosToNode(&_case.node, parser.tokens[parser.idx])
 				parser.idx++
-				for parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKColon {
-					if len(_case.Exprs) > 0 {
-						parser.want(TKComma, ",")
-					}
-					
-					case_expr := parser.MainExpr()
-					if _, is_bad := case_expr.(*BadExpr); is_bad {
-						bad_case = true
-						goto errd_case
-					}
-					_case.Exprs = append(_case.Exprs, case_expr)
-				}
-				if len(_case.Exprs) <= 0 {
-					parser.syntaxErr("case is missing expressions!")
-					parser.idx++
+				case_expr := parser.MainExpr()
+				if _, is_bad := case_expr.(*BadExpr); is_bad {
 					bad_case = true
 					goto errd_case
+				} else {
+					_case.Case = case_expr
 				}
 				parser.want(TKColon, ":")
 				_case.Body = parser.Statement()
@@ -459,6 +740,11 @@ type (
 	}
 	
 	BadExpr struct {
+		expr
+	}
+	
+	// ...
+	EllipsesExpr struct {
 		expr
 	}
 	
@@ -592,7 +878,7 @@ func (parser *Parser) AssignExpr() Expr {
 	return a
 }
 
-// SubMainExpr = LogicalOrExpr [ '?' LogicalOrExpr ':' Expr ] .
+// SubMainExpr = LogicalOrExpr [ TernaryExpr ] .
 func (parser *Parser) SubMainExpr() Expr {
 	a := parser.LogicalOrExpr()
 	if parser.checkTokenLen() && parser.tokens[parser.idx].Kind==TKQMark {
@@ -602,6 +888,7 @@ func (parser *Parser) SubMainExpr() Expr {
 	return a
 }
 
+// TernaryExpr = '?' LogicalOrExpr ':' Expr .
 func (parser *Parser) DoTernary(a Expr) Expr {
 	tk := parser.tokens[parser.idx]
 	t := new(TernaryExpr)
@@ -697,7 +984,6 @@ func (parser *Parser) RelExpr() Expr {
 	}
 	return e
 }
-
 
 // BitOrExpr = BitXorExpr *( '|' BitXorExpr ) .
 func (parser *Parser) BitOrExpr() Expr {
@@ -825,7 +1111,6 @@ func (parser *Parser) MulExpr() Expr {
 	return e
 }
 
-
 // Prefix = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new' ) Postfix .
 func (parser *Parser) PrefixExpr() Expr {
 	// certain patterns are allowed to recursively run Prefix.
@@ -841,7 +1126,6 @@ func (parser *Parser) PrefixExpr() Expr {
 			return parser.PostfixExpr()
 	}
 }
-
 
 // TypeExpr = '<' ( ident | '[u]int[8|16|32|64|n]' | 'float' | 'char' | 'bool' ) '>' .
 func (parser *Parser) TypeExpr(need_carots bool) Expr {
@@ -918,7 +1202,9 @@ func (parser *Parser) PostfixExpr() Expr {
 				arr := new(IndexExpr)
 				copyPosToNode(&arr.node, t)
 				arr.X = n
-				arr.Index = parser.MainExpr()
+				if parser.checkTokenLen() && parser.tokens[parser.idx].Kind != TKRBrack {
+					arr.Index = parser.MainExpr()
+				}
 				parser.want(TKRBrack, "]")
 				n = arr
 			case TKIncr, TKDecr:
@@ -961,7 +1247,7 @@ func (parser *Parser) PostfixExpr() Expr {
 	return n
 }
 
-// Primary = int_lit | rune_lit | string_lit | identifier | 'true' | 'false' | 'this' | 'null' | '(' Expr ')' .
+// Primary = int_lit | rune_lit | string_lit | identifier | 'true' | 'false' | 'this' | 'null' | '...' | '(' Expr ')' .
 func (parser *Parser) PrimaryExpr() Expr {
 	ret_expr := Expr(nil)
 	if !parser.checkTokenLen() || parser.tokens[parser.idx].Kind==TKEoF {
@@ -970,6 +1256,10 @@ func (parser *Parser) PrimaryExpr() Expr {
 		return bad
 	}
 	switch prim := parser.tokens[parser.idx]; prim.Kind {
+		case TKEllipses:
+			ell := new(EllipsesExpr)
+			copyPosToNode(&ell.node, prim)
+			ret_expr = ell
 		case TKLParen:
 			parser.idx++
 			ret_expr = parser.MainExpr()
@@ -1037,6 +1327,12 @@ func PrintNode(n Node, tabs int) {
 	const c = '-'
 	printTabs(c, tabs)
 	switch ast := n.(type) {
+		case nil:
+			fmt.Printf("nil Node\n")
+		case *BadStmt:
+			fmt.Printf("Bad Stmt Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+		case *BadExpr:
+			fmt.Printf("Bad Expr Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
 		case *NullExpr:
 			fmt.Printf("'null' expr\n")
 		case *BasicLit:
@@ -1102,6 +1398,8 @@ func PrintNode(n Node, tabs int) {
 			for i := range ast.Exprs {
 				PrintNode(ast.Exprs[i], tabs + 1)
 			}
+		case *EllipsesExpr:
+			fmt.Printf("Ellipses '...' Expr\n")
 		case *RetStmt:
 			fmt.Printf("Return Statement\n")
 			if ast.X != nil {
@@ -1123,14 +1421,22 @@ func PrintNode(n Node, tabs int) {
 		case *ForStmt:
 			fmt.Printf("For Statement\n")
 			if ast.Init != nil {
+				printTabs(c, tabs)
+				fmt.Printf("For Statement Init\n")
 				PrintNode(ast.Init, tabs + 1)
 			}
 			if ast.Cond != nil {
+				printTabs(c, tabs)
+				fmt.Printf("For Statement Cond\n")
 				PrintNode(ast.Cond, tabs + 1)
 			}
 			if ast.Post != nil {
+				printTabs(c, tabs)
+				fmt.Printf("For Statement Post\n")
 				PrintNode(ast.Post, tabs + 1)
 			}
+			printTabs(c, tabs)
+			fmt.Printf("For Statement Body\n")
 			PrintNode(ast.Body, tabs + 1)
 		case *ExprStmt:
 			fmt.Printf("Expr Statement\n")
@@ -1158,9 +1464,7 @@ func PrintNode(n Node, tabs int) {
 			}
 		case *CaseStmt:
 			fmt.Printf("Case Statement Exprs\n")
-			for i := range ast.Exprs {
-				PrintNode(ast.Exprs[i], tabs + 1)
-			}
+			PrintNode(ast.Case, tabs + 1)
 			printTabs(c, tabs)
 			fmt.Printf("Case Statement Body\n")
 			PrintNode(ast.Body, tabs + 1)
@@ -1173,6 +1477,34 @@ func PrintNode(n Node, tabs int) {
 			fmt.Printf("Static Assert Statement\n")
 			PrintNode(ast.A, tabs + 1)
 			PrintNode(ast.B, tabs + 1)
+		case *DeclStmt:
+			fmt.Printf("Declaration Statement\n")
+			PrintNode(ast.D, tabs + 1)
+		case *VarSpec:
+			fmt.Printf("Var Specification Type\n")
+			PrintNode(ast.Type, tabs + 1)
+			printTabs(c, tabs)
+			fmt.Printf("Var Specification Flags:: %d\n", ast.ClassFlags)
+		case *TypeSpec:
+			fmt.Printf("Type Specification\n")
+			PrintNode(ast.Type, tabs + 1)
+			printTabs(c, tabs)
+			fmt.Printf("Type Specification Dims:: %d\n", ast.Dims)
+			printTabs(c, tabs)
+			fmt.Printf("Type Specification Is Reference:: %t\n", ast.IsRef)
+		case *VarDecl:
+			fmt.Printf("Var Declaration Type\n")
+			PrintNode(ast.VarType, tabs + 1)
+			printTabs(c, tabs)
+			fmt.Printf("Var Specification Names\n")
+			for i := range ast.Names {
+				PrintNode(ast.Names[i], tabs + 1)
+			}
+			printTabs(c, tabs)
+			fmt.Printf("Var Specification Inits\n")
+			for i := range ast.Inits {
+				PrintNode(ast.Inits[i], tabs + 1)
+			}
 		default:
 			fmt.Printf("default :: %T\n", ast)
 	}
@@ -1261,14 +1593,30 @@ func Walk(n Node, visitor func(Node) bool) {
 				Walk(ast.Default, visitor)
 			}
 		case *CaseStmt:
-			for i := range ast.Exprs {
-				Walk(ast.Exprs[i], visitor)
-			}
+			Walk(ast.Case, visitor)
 			Walk(ast.Body, visitor)
 		case *AssertStmt:
 			Walk(ast.X, visitor)
 		case *StaticAssertStmt:
 			Walk(ast.A, visitor)
 			Walk(ast.B, visitor)
+		case *DeclStmt:
+			Walk(ast.D, visitor)
+		case *VarSpec:
+			Walk(ast.Type, visitor)
+		case *TypeSpec:
+			Walk(ast.Type, visitor)
+		case *VarDecl:
+			Walk(ast.VarType, visitor)
+			for i := range ast.Names {
+				if ast.Names[i] != nil {
+					Walk(ast.Names[i], visitor)
+				}
+			}
+			for i := range ast.Inits {
+				if ast.Inits[i] != nil {
+					Walk(ast.Inits[i], visitor)
+				}
+			}
 	}
 }

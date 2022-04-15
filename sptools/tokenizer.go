@@ -40,7 +40,6 @@ const (
 	// keywords
 	// acquire, any, as, assert
 	TKAcquire
-	TKAny
 	TKAs
 	TKAssert
 	
@@ -252,7 +251,6 @@ const (
 var (
 	Keywords = map[string]TokenKind {
 		"acquire": TKAcquire,
-		"any": TKAny,
 		"as": TKAs,
 		"assert": TKAssert,
 		"break": TKBreak,
@@ -399,7 +397,6 @@ var (
 		TKStrLit: "<string>",
 		TKCharLit: "<char>",
 		TKAcquire: "acquire",
-		TKAny: "any",
 		TKAs: "as",
 		TKAssert: "assert",
 		TKBreak: "break",
@@ -565,12 +562,24 @@ func (tok *Token) IsType() bool {
 	switch tok.Kind {
 		case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
 			fallthrough
-		case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKAny, TKVoid:
+		case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKVoid:
 			return true
 		default:
 			return false
 	}
 }
+
+func (tok *Token) IsStorageClass() bool {
+	switch tok.Kind {
+		case TKConst, TKStock, TKPublic, TKPrivate, TKProtected, TKStatic:
+			fallthrough
+		case TKForward, TKNative, TKReadOnly, TKSealed, TKVirtual:
+			return true
+		default:
+			return false
+	}
+}
+
 
 /*
 type scanner struct {
