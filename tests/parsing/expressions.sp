@@ -1,4 +1,11 @@
 {
+	stock int Call();;
+	stock int Foo(int a) = Call;
+	stock int Bar(int[] a) {
+		for (int i = 0; a[i] < 100; ++i) {}
+	};
+	
+	/*
 	for (public static const virtual int i=MaxClients; i; --i) {}
 	for (int[] i = new int[100]; i[0] < 100; i[x++]) {}
 	const char[] valve_path_id="GAME";
@@ -7,7 +14,8 @@
 	char x[]="kektus";
 	i++, ++i;
 	F(.a=b, .c = new int[100]);
-	
+	*/
+	/*
 	for (1;;) {}
 	for (;1;) {}
 	for (;;1) {}
@@ -50,4 +58,5 @@
 		case 1,2,3: return bart;
 		default: return baz;
 	}
+	*/
 }
