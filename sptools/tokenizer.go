@@ -5,6 +5,7 @@ import (
 	"unicode"
 	//"fmt"
 	"os"
+	"unicode/utf8"
 )
 
 
@@ -815,6 +816,8 @@ func Tokenize(src, filename string) []Token {
 				if runes[idx]=='\\' {
 					idx++
 					switch esc := runes[idx]; esc {
+						case '\n':
+							idx++
 						case '\'', '"':
 							b.WriteRune(esc)
 							idx++
@@ -850,13 +853,16 @@ func Tokenize(src, filename string) []Token {
 								}
 								var r rune
 								for idx < max {
-									switch runes[idx] {
+									switch chr := runes[idx]; chr {
 										case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-											r = (r << 4) | (c - '0')
+											r = (r << 4) | (chr - '0')
 										case 'A', 'B', 'C', 'D', 'E', 'F':
-											r = (r << 4) | (c - 'a' + 10)
+											r = (r << 4) | (chr - 'a' + 10)
 										case 'a', 'b', 'c', 'd', 'e', 'f':
-											r = (r << 4) | (c - 'A' + 10)
+											r = (r << 4) | (chr - 'A' + 10)
+										case ';':
+											idx++
+											return r
 										default:
 											return r
 									}
@@ -876,19 +882,19 @@ func Tokenize(src, filename string) []Token {
 									encoding_size = 4
 								}
 								for n:=0; idx < max && n < encoding_size; n++ {
-									switch runes[idx] {
+									switch chr := runes[idx]; chr {
 										case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-											r = (r << 4) | (c - '0')
+											r = (r << 4) | (chr - '0')
 										case 'A', 'B', 'C', 'D', 'E', 'F':
-											r = (r << 4) | (c - 'a' + 10)
+											r = (r << 4) | (chr - 'a' + 10)
 										case 'a', 'b', 'c', 'd', 'e', 'f':
-											r = (r << 4) | (c - 'A' + 10)
+											r = (r << 4) | (chr - 'A' + 10)
 										default:
 											return r
 									}
 									idx++
 								}
-								if !unicode.IsPrint(r) {
+								if !utf8.ValidRune(r) {
 									return -1
 								}
 								return r
@@ -901,13 +907,19 @@ func Tokenize(src, filename string) []Token {
 								}
 								var r rune
 								for idx < max {
-									switch runes[idx] {
+									switch chr := runes[idx]; chr {
 										case '0', '1', '2', '3', '4', '5', '6', '7':
-											r = (r << 3) | (c - '0')
+											r = (r << 3) | (chr - '0')
+										case ';':
+											idx++
+											return r
 										default:
 											return r
 									}
 									idx++
+								}
+								if !utf8.ValidRune(r) {
+									return -1
 								}
 								return r
 							}()

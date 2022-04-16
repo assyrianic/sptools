@@ -36,10 +36,15 @@ type Parser struct {
 
 func (parser *Parser) GetToken(offset int) Token {
 	tlen := len(parser.tokens)
-	if parser.idx + offset >= tlen {
+	index := parser.idx + offset
+	if index >= tlen || index < 0 {
 		return parser.tokens[tlen - 1]
 	} else {
-		return parser.tokens[parser.idx + offset]
+		if t := parser.tokens[index]; t.Kind==TKNewline || t.Kind==TKComment {
+			parser.idx++
+			return parser.GetToken(offset)
+		}
+		return parser.tokens[index]
 	}
 }
 
@@ -482,11 +487,12 @@ func (parser *Parser) noSemi() Stmt {
 // BlockStmt = '{' *Statement '}' .
 func (parser *Parser) DoBlock() Stmt {
 	block := new(BlockStmt)
+	fmt.Printf("starting tok: %v\n", parser.GetToken(0))
 	parser.want(TKLCurl, "{")
 	copyPosToNode(&block.node, parser.tokens[parser.idx-1])
-	for parser.GetToken(0).Kind != TKRCurl {
-		time.Sleep(400 * time.Millisecond)
-		fmt.Printf("current tok: %v\n", parser.GetToken(0))
+	for t := parser.GetToken(0); t.Kind != TKRCurl && t.Kind != TKEoF; t = parser.GetToken(0) {
+		time.Sleep(350 * time.Millisecond)
+		fmt.Printf("current tok: %v\n", t)
 		n := parser.Statement()
 		if n==nil {
 			fmt.Printf("n == nil\n")
