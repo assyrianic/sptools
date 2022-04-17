@@ -82,9 +82,32 @@ func (parser *Parser) Start() Node {
 
 
 // top-level plugin.
-type File struct {
+type Plugin struct {
 	Decls []Decl
+	Funcs map[string]*FuncDecl
+	Vars  map[string]*VarDecl
+	Types map[string]*TypeDecl
 	node
+}
+
+// Plugin = +TopDecl .
+// TopDecl = FuncDecl | TypeDecl | VarDecl .
+func (parser *Parser) TopDecl() Plugin {
+	plugin := new(Plugin)
+	for t := parser.GetToken(0); t.Kind != TKEoF; t = parser.GetToken(0) {
+		if t.IsStorageClass() || t.IsType() || t.Kind==TKIdent && t.GetToken(1).Kind==TKIdent {
+			d := parser.DoVarOrFuncDecl()
+			plugin.Decls = append(plugin.Decls, d)
+		} else {
+			case TKTypedef:
+			case TKTypeset:
+			case TKEnum:
+			case TKStruct:
+			case TKUsing:
+			case TKMethodMap:
+		}
+	}
+	return plugin
 }
 
 
@@ -173,114 +196,6 @@ type decl struct{ node }
 func (*decl) aDecl() {}
 
 
-// Specifications here.
-// Spec represents a constant, type, or variable declaration.
-type (
-	Spec interface {
-		Node
-		aSpec()
-	}
-	
-	BadSpec struct {
-		spec
-	}
-	
-	// enum Name { ... }
-	// enum { ... }
-	EnumSpec struct {
-		Ident Expr // can be nil.
-		Values []Expr
-		spec
-	}
-	
-	// struct Name { ... }
-	// enum struct Name { ... }
-	StructSpec struct {
-		Ident Expr
-		IsEnum bool
-		Fields []Decl // []*VarDecl
-		Methods []Decl // []*FuncDecl
-		spec
-	}
-	
-	// methodmap Name [< type] { ... };
-	MethodMapSpec struct {
-		Ident, Inheritor Expr
-		spec
-	}
-	
-	// property Type name {}
-	MethodMapPropSpec struct {
-		Type Spec // *TypeSpec
-		Ident Expr
-		spec
-	}
-	
-	// using name;
-	UsingSpec struct {
-		Namespace Expr
-		spec
-	}
-	
-	// type[]&
-	TypeSpec struct {
-		Type Expr
-		Dims int
-		IsRef bool
-		spec
-	}
-	
-	// typedef name = type;
-	TypedefSpec struct {
-		spec
-	}
-	
-	// typeset name {}
-	TypeSetSpec struct {
-		spec
-	}
-)
-type spec struct{ node }
-func (*spec) aSpec() {}
-
-
-// StorageClass = 'native' | 'forward' | 'const' | 'static' | 'stock' | 'public' | 'private' | 'protected' | 'readonly' | 'sealed' | 'virtual' .
-func (parser *Parser) StorageClass() StorageClassFlags {
-	flags := StorageClassFlags(0)
-	for parser.GetToken(0).IsStorageClass() {
-		flags |= storageClassFromToken(parser.GetToken(0))
-		parser.idx++
-	}
-	return flags
-}
-
-// AbstractDecl = Type [ *'[]' | '&' ] .
-func (parser *Parser) AbstractDecl() Spec {
-	tspec := new(TypeSpec)
-	copyPosToNode(&tspec.node, parser.GetToken(0))
-	// next get type name.
-	tspec.Type = parser.TypeExpr(false)
-	
-	// check pre-identifier array dims or ampersand reference.
-	if t := parser.GetToken(0); t.Kind==TKLBrack {
-		for parser.GetToken(0).Kind==TKLBrack {
-			tspec.Dims++
-			parser.want(TKLBrack, "[")
-			parser.want(TKRBrack, "]")
-			tspec.IsRef = true
-		}
-	} else if t.Kind==TKAnd {
-		tspec.IsRef = true
-		parser.idx++
-	}
-	return tspec
-}
-
-// VarOrFuncSpec = *StorageClass AbstractDecl .
-func (parser *Parser) VarOrFuncSpec() (StorageClassFlags, Spec) {
-	return parser.StorageClass(), parser.AbstractDecl()
-}
-
 // VarDecl  = VarOrFuncSpec VarDeclarator .
 // FuncDecl = VarOrFuncSpec FuncDeclarator .
 func (parser *Parser) DoVarOrFuncDecl() Decl {
@@ -297,7 +212,6 @@ func (parser *Parser) DoVarOrFuncDecl() Decl {
 		parser.DoFuncDeclarator(fdecl)
 		return fdecl
 	} else {
-		fmt.Printf("DoVarOrFuncDecl :: %v\n", t)
 		vdecl := new(VarDecl)
 		copyPosToNode(&vdecl.node, saved_token)
 		vdecl.Type = spec_type
@@ -372,6 +286,115 @@ func (parser *Parser) DoFuncDeclarator(fdecl *FuncDecl) {
 			fdecl.Body = new(BadDecl)
 			copyPosToNode(&fdecl.node, t)
 	}
+}
+
+
+// Specifications here.
+// Spec represents a constant, type, or variable declaration.
+type (
+	Spec interface {
+		Node
+		aSpec()
+	}
+	
+	BadSpec struct {
+		spec
+	}
+	
+	// enum Name { ... }
+	// enum { ... }
+	EnumSpec struct {
+		Ident Expr // can be nil.
+		Values []Expr
+		spec
+	}
+	
+	// struct Name { ... }
+	// enum struct Name { ... }
+	StructSpec struct {
+		Ident Expr
+		IsEnum bool
+		Fields []Decl // []*VarDecl
+		Methods []Decl // []*FuncDecl
+		spec
+	}
+	
+	// methodmap Name [< type] { ... };
+	MethodMapSpec struct {
+		Ident, Inheritor Expr
+		spec
+	}
+	
+	// property Type name {}
+	MethodMapPropSpec struct {
+		Type Spec // *TypeSpec
+		Ident Expr
+		spec
+	}
+	
+	// using name;
+	UsingSpec struct {
+		Namespace Expr
+		spec
+	}
+	
+	// type[]&
+	TypeSpec struct {
+		Type Expr
+		Dims int
+		IsRef bool
+		spec
+	}
+	
+	// typedef name = type;
+	TypeDefSpec struct {
+		spec
+	}
+	
+	// typeset name {}
+	TypeSetSpec struct {
+		spec
+	}
+)
+type spec struct{ node }
+func (*spec) aSpec() {}
+
+
+// StorageClass = 'native' | 'forward' | 'const' | 'static' | 'stock' | 'public' | 'private' | 'protected' | 'readonly' | 'sealed' | 'virtual' .
+func (parser *Parser) StorageClass() StorageClassFlags {
+	flags := StorageClassFlags(0)
+	for parser.GetToken(0).IsStorageClass() {
+		flags |= storageClassFromToken(parser.GetToken(0))
+		parser.idx++
+	}
+	return flags
+}
+
+// AbstractDecl = Type [ *'[]' | '&' ] .
+func (parser *Parser) AbstractDecl() Spec {
+	tspec := new(TypeSpec)
+	copyPosToNode(&tspec.node, parser.GetToken(0))
+	// next get type name.
+	tspec.Type = parser.TypeExpr(false)
+	
+	// check pre-identifier array dims or ampersand reference.
+	if t := parser.GetToken(0); t.Kind==TKLBrack {
+		for parser.GetToken(0).Kind==TKLBrack {
+			tspec.Dims++
+			parser.want(TKLBrack, "[")
+			parser.want(TKRBrack, "]")
+			tspec.IsRef = true
+		}
+	} else if t.Kind==TKAnd {
+		tspec.IsRef = true
+		parser.idx++
+	}
+	return tspec
+}
+
+// VarOrFuncSpec = *StorageClass AbstractDecl .
+func (parser *Parser) VarOrFuncSpec() (StorageClassFlags, Spec) {
+	return parser.StorageClass(), parser.AbstractDecl()
 }
 
 
