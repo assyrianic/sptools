@@ -2,8 +2,10 @@ package SPTools
 
 import (
 	"os"
+	"io"
 	"fmt"
 	"time"
+	"strings"
 )
 
 
@@ -24,10 +26,10 @@ type node struct {
 func (n *node) Pos() Pos { return n.pos }
 func (*node) aNode()       {}
 
-
 func copyPosToNode(n *node, t Token) {
 	n.pos.Line, n.pos.Col = t.Line, t.Col
 }
+
 
 type Parser struct {
 	tokens  []Token
@@ -39,17 +41,17 @@ func (parser *Parser) GetToken(offset int) Token {
 	index := parser.idx + offset
 	if index >= tlen || index < 0 {
 		return parser.tokens[tlen - 1]
-	} else {
-		if t := parser.tokens[index]; t.Kind==TKNewline || t.Kind==TKComment {
-			parser.idx++
-			return parser.GetToken(offset)
-		}
-		return parser.tokens[index]
 	}
+	
+	if t := parser.tokens[index]; t.Kind==TKNewline || t.Kind==TKComment {
+		parser.idx++
+		return parser.GetToken(offset)
+	}
+	return parser.tokens[index]
 }
 
-func (parser *Parser) Advance() Token {
-	parser.idx++
+func (parser *Parser) Advance(i int) Token {
+	parser.idx += i
 	return parser.GetToken(0)
 }
 
@@ -64,11 +66,15 @@ func (parser *Parser) got(tk TokenKind) bool {
 func (parser *Parser) syntaxErr(msg string, args ...interface{}) {
 	token := parser.GetToken(-1)
 	writeMsg(&parser.Errs, os.Stdout, *token.Path, "syntax error", COLOR_RED, &token.Line, &token.Col, msg, args...)
+	if parser.Errs > 20 {
+		writeMsg(&parser.Errs, os.Stdout, *token.Path, "syntax error", COLOR_RED, &token.Line, &token.Col, "too many errors!")
+		os.Exit(-1)
+	}
 }
 
 func (parser *Parser) want(tk TokenKind, lexeme string) bool {
 	if !parser.got(tk) {
-		parser.syntaxErr("expecting '%s'", lexeme)
+		parser.syntaxErr("expecting '%s' but got '%s'", lexeme, parser.GetToken(0).Lexeme)
 		// continue on and try to parse the remainder
 		parser.idx++
 		return false
@@ -76,8 +82,9 @@ func (parser *Parser) want(tk TokenKind, lexeme string) bool {
 	return true
 }
 
+
 func (parser *Parser) Start() Node {
-	return parser.DoBlock()
+	return parser.TopDecl()
 }
 
 
@@ -92,19 +99,37 @@ type Plugin struct {
 
 // Plugin = +TopDecl .
 // TopDecl = FuncDecl | TypeDecl | VarDecl .
-func (parser *Parser) TopDecl() Plugin {
+func (parser *Parser) TopDecl() Node {
 	plugin := new(Plugin)
 	for t := parser.GetToken(0); t.Kind != TKEoF; t = parser.GetToken(0) {
-		if t.IsStorageClass() || t.IsType() || t.Kind==TKIdent && t.GetToken(1).Kind==TKIdent {
-			d := parser.DoVarOrFuncDecl()
-			plugin.Decls = append(plugin.Decls, d)
+		time.Sleep(100 * time.Millisecond)
+		///fmt.Printf("TopDecl :: current tok: %v\n", t)
+		if t.IsStorageClass() || t.IsType() || t.Kind==TKIdent && parser.GetToken(1).Kind==TKIdent {
+			v_or_f_decl := parser.DoVarOrFuncDecl(false)
+			plugin.Decls = append(plugin.Decls, v_or_f_decl)
 		} else {
-			case TKTypedef:
-			case TKTypeset:
-			case TKEnum:
-			case TKStruct:
-			case TKUsing:
-			case TKMethodMap:
+			type_decl := new(TypeDecl)
+			copyPosToNode(&type_decl.node, t)
+			switch t.Kind {
+				///case TKMethodMap:
+				case TKTypedef:
+					type_decl.Type = parser.DoTypedef()
+				case TKTypeset:
+					type_decl.Type = parser.DoTypeSet()
+				case TKEnum:
+					type_decl.Type = parser.DoEnumSpec()
+				case TKStruct:
+					type_decl.Type = parser.DoStruct(false)
+				case TKUsing:
+					type_decl.Type = parser.DoUsingSpec()
+				default:
+					bad := new(BadDecl)
+					copyPosToNode(&bad.node, t)
+					///fmt.Printf("TopDecl :: bad Node: %s | Line: %d, Col: %d\n", t.Lexeme, t.Line, t.Col)
+					plugin.Decls = append(plugin.Decls, bad)
+					return plugin
+			}
+			plugin.Decls = append(plugin.Decls, type_decl)
 		}
 	}
 	return plugin
@@ -125,6 +150,53 @@ const (
 	IsSealed
 	IsVirtual
 )
+
+func (sc StorageClassFlags) String() string {
+	var sb strings.Builder
+	n := sc
+	for n != 0 {
+		if sb.Len() > 0 {
+			sb.WriteString(" ")
+		}
+		switch {
+			case n & IsPublic > 0:
+				sb.WriteString("public")
+				n &^= IsPublic
+			case n & IsConst > 0:
+				sb.WriteString("const")
+				n &^= IsConst
+			case n & IsNative > 0:
+				sb.WriteString("native")
+				n &^= IsNative
+			case n & IsForward > 0:
+				sb.WriteString("forward")
+				n &^= IsForward
+			case n & IsStatic > 0:
+				sb.WriteString("static")
+				n &^= IsStatic
+			case n & IsStock > 0:
+				sb.WriteString("stock")
+				n &^= IsStock
+			case n & IsPrivate > 0:
+				sb.WriteString("private")
+				n &^= IsPrivate
+			case n & IsProtected > 0:
+				sb.WriteString("protected")
+				n &^= IsProtected
+			case n & IsReadOnly > 0:
+				sb.WriteString("readonly")
+				n &^= IsReadOnly
+			case n & IsSealed > 0:
+				sb.WriteString("sealed")
+				n &^= IsSealed
+			case n & IsVirtual > 0:
+				sb.WriteString("virtual")
+				n &^= IsVirtual
+		}
+	}
+	return sb.String()
+}
+
 func storageClassFromToken(tok Token) StorageClassFlags {
 	switch tok.Kind {
 		case TKConst:
@@ -175,7 +247,8 @@ type (
 	VarDecl struct {
 		Type Spec // *TypeSpec
 		Names, Inits []Expr
-		// nil index if there was no initializer/arraydims.
+		Dims [][]Expr // a var can have multiple dims, account for em all.
+		// nil index if there was no initializer.
 		ClassFlags StorageClassFlags
 		decl
 	}
@@ -198,17 +271,16 @@ func (*decl) aDecl() {}
 
 // VarDecl  = VarOrFuncSpec VarDeclarator .
 // FuncDecl = VarOrFuncSpec FuncDeclarator .
-func (parser *Parser) DoVarOrFuncDecl() Decl {
+func (parser *Parser) DoVarOrFuncDecl(param bool) Decl {
 	saved_token := parser.GetToken(0)
 	class_flags, spec_type := parser.VarOrFuncSpec()
-	ident := parser.PrimaryExpr()
+	ident := parser.PrimaryExpr() // get NAME only.
 	if t := parser.GetToken(0); t.Kind==TKLParen {
 		fdecl := new(FuncDecl)
 		copyPosToNode(&fdecl.node, saved_token)
 		fdecl.RetType = spec_type
 		fdecl.ClassFlags = class_flags
 		fdecl.Ident = ident
-		parser.idx++
 		parser.DoFuncDeclarator(fdecl)
 		return fdecl
 	} else {
@@ -217,62 +289,76 @@ func (parser *Parser) DoVarOrFuncDecl() Decl {
 		vdecl.Type = spec_type
 		vdecl.ClassFlags = class_flags
 		vdecl.Names = append(vdecl.Names, ident)
-		parser.DoVarDeclarator(vdecl)
+		parser.DoVarDeclarator(vdecl, param)
 		return vdecl
 	}
 }
 
 // VarDeclarator = Ident [ IndexExpr ] [ Initializer ] *( ',' VarDeclarator ) .
 // Initializer = '=' SubMainExpr | '{' Expr [ ',' ( '...' | *Expr ) ] '}' .
-func (parser *Parser) DoVarDeclarator(vdecl *VarDecl) {
-	if parser.GetToken(0).Kind==TKAssign {
-		parser.idx++
-		vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
-	} else {
-		vdecl.Inits = append(vdecl.Inits, nil)
-	}
-	
-	// TODO: clean this up.
-	if parser.GetToken(0).Kind==TKComma {
-		for parser.GetToken(0).Kind==TKComma {
-			parser.idx++
-			vdecl.Names = append(vdecl.Names, parser.SubMainExpr())
-			if parser.GetToken(0).Kind==TKAssign {
-				parser.idx++
-				// { expr list } .
-				if parser.GetToken(0).Kind==TKLCurl {
-					parser.idx++
-					for parser.GetToken(0).Kind != TKRCurl {
-						vdecl.Inits = append(vdecl.Inits, parser.MainExpr())
-					}
-					parser.want(TKRCurl, "}")
-				} else {
-					// = expr .
-					vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
-				}
-			} else {
-				vdecl.Inits = append(vdecl.Inits, nil)
+func (parser *Parser) DoVarDeclarator(vdecl *VarDecl, param bool) {
+	for {
+		if parser.GetToken(0).Kind==TKLBrack {
+			var dims []Expr
+			for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind==TKLBrack; t = parser.GetToken(0) {
+				parser.want(TKLBrack, "[")
+				dims = append(dims, parser.SubMainExpr())
+				parser.want(TKRBrack, "]")
 			}
+			vdecl.Dims = append(vdecl.Dims, dims)
+		} else {
+			vdecl.Dims = append(vdecl.Dims, nil)
+		}
+		
+		if parser.GetToken(0).Kind==TKAssign {
+			parser.idx++
+			// { expr list } .
+			if parser.GetToken(0).Kind==TKLCurl {
+				parser.idx++
+				for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != TKRCurl; t = parser.GetToken(0) {
+					vdecl.Inits = append(vdecl.Inits, parser.MainExpr())
+				}
+				parser.want(TKRCurl, "}")
+			} else {
+				// = expr .
+				vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
+			}
+		} else {
+			vdecl.Inits = append(vdecl.Inits, nil)
+		}
+		
+		if param || parser.GetToken(0).Kind==TKEoF || parser.GetToken(0).Kind != TKComma {
+			break
 		}
 	}
 }
 
-// FuncSpec = Ident '(' *VarDecl ')' ( Initializer | Block | ';' ) .
-func (parser *Parser) DoFuncDeclarator(fdecl *FuncDecl) {
-	for t := parser.GetToken(0); t.Kind != TKRParen; t = parser.GetToken(0) {
-		if len(fdecl.Params) > 0 {
+// ParamList = '(' *VarDecl ')' .
+func (parser *Parser) DoParamList() []Decl {
+	var params []Decl
+	parser.want(TKLParen, "(")
+	for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != TKRParen; t = parser.GetToken(0) {
+		time.Sleep(100 * time.Millisecond)
+		if len(params) > 0 {
 			parser.want(TKComma, ",")
 		}
-		var_decl := parser.DoVarOrFuncDecl()
+		
+		var_decl := parser.DoVarOrFuncDecl(true)
 		if _, is_var_decl := var_decl.(*VarDecl); !is_var_decl {
 			bad_decl := new(BadDecl)
 			copyPosToNode(&bad_decl.node, t)
-			fdecl.Params = append(fdecl.Params, bad_decl)
+			params = append(params, bad_decl)
 		} else {
-			fdecl.Params = append(fdecl.Params, var_decl)
+			params = append(params, var_decl)
 		}
 	}
-	parser.idx++
+	parser.want(TKRParen, ")")
+	return params
+}
+
+// FuncSpec = Ident ParamList ( Initializer | Block | ';' ) .
+func (parser *Parser) DoFuncDeclarator(fdecl *FuncDecl) {
+	fdecl.Params = parser.DoParamList()
 	switch t := parser.GetToken(0); t.Kind {
 		case TKSemi:
 			parser.want(TKSemi, ";")
@@ -303,8 +389,12 @@ type (
 	
 	// enum Name { ... }
 	// enum { ... }
+	// enum ( op= i ) { ... }
 	EnumSpec struct {
 		Ident Expr // can be nil.
+		Step Expr // can be nil.
+		StepOp TokenKind
+		Names []Expr
 		Values []Expr
 		spec
 	}
@@ -316,19 +406,6 @@ type (
 		IsEnum bool
 		Fields []Decl // []*VarDecl
 		Methods []Decl // []*FuncDecl
-		spec
-	}
-	
-	// methodmap Name [< type] { ... };
-	MethodMapSpec struct {
-		Ident, Inheritor Expr
-		spec
-	}
-	
-	// property Type name {}
-	MethodMapPropSpec struct {
-		Type Spec // *TypeSpec
-		Ident Expr
 		spec
 	}
 	
@@ -346,13 +423,40 @@ type (
 		spec
 	}
 	
-	// typedef name = type;
-	TypeDefSpec struct {
+	// methodmap Name [< type] { ... };
+	MethodMapSpec struct {
+		Ident Expr
+		Parent Expr // TypeExpr
+		Props []Spec // []*MethodMapPropSpec
+		Methods []Spec
 		spec
 	}
 	
-	// typeset name {}
+	// property Type name {}
+	MethodMapPropSpec struct {
+		Type Spec // *TypeSpec
+		Ident Expr
+		spec
+	}
+	
+	// function type params;
+	SignatureSpec struct {
+		Type Spec
+		Params []Decl // array of []*VarDecl, *BadDecl if error.
+		spec
+	}
+	
+	// typedef name = function type params;
+	TypeDefSpec struct {
+		Ident Expr
+		Sig Spec // *SignatureSpec
+		spec
+	}
+	
+	// typeset name {};
 	TypeSetSpec struct {
+		Ident Expr
+		Signatures []Spec // []*FuncSpec
 		spec
 	}
 )
@@ -378,16 +482,17 @@ func (parser *Parser) AbstractDecl() Spec {
 	tspec.Type = parser.TypeExpr(false)
 	
 	// check pre-identifier array dims or ampersand reference.
-	if t := parser.GetToken(0); t.Kind==TKLBrack {
-		for parser.GetToken(0).Kind==TKLBrack {
-			tspec.Dims++
-			parser.want(TKLBrack, "[")
-			parser.want(TKRBrack, "]")
+	switch t := parser.GetToken(0); t.Kind {
+		case TKLBrack:
+			for parser.GetToken(0).Kind==TKLBrack {
+				tspec.Dims++
+				parser.want(TKLBrack, "[")
+				parser.want(TKRBrack, "]")
+				tspec.IsRef = true
+			}
+		case TKAnd:
 			tspec.IsRef = true
-		}
-	} else if t.Kind==TKAnd {
-		tspec.IsRef = true
-		parser.idx++
+			parser.Advance(1)
 	}
 	return tspec
 }
@@ -395,6 +500,193 @@ func (parser *Parser) AbstractDecl() Spec {
 // VarOrFuncSpec = *StorageClass AbstractDecl .
 func (parser *Parser) VarOrFuncSpec() (StorageClassFlags, Spec) {
 	return parser.StorageClass(), parser.AbstractDecl()
+}
+
+// SignatureSpec = 'function' AbstractDecl ParamsList .
+func (parser *Parser) DoFuncSignature() Spec {
+	sig := new(SignatureSpec)
+	copyPosToNode(&sig.node, parser.GetToken(0))
+	parser.want(TKFunction, "function")
+	sig.Type = parser.AbstractDecl()
+	sig.Params = parser.DoParamList()
+	return sig
+}
+
+// EnumSpec = 'enum' [ ident [ ':' ] '(' operator PrimaryExpr ')' ] '{' +EnumEntry '}' [ ';' ] .
+// EnumEntry = Ident [ '=' Expr ] .
+func (parser *Parser) DoEnumSpec() Spec {
+	enum := new(EnumSpec)
+	copyPosToNode(&enum.node, parser.GetToken(0))
+	parser.want(TKEnum, "enum")
+	if t := parser.GetToken(0); t.Kind==TKStruct {
+		return parser.DoStruct(true)
+	}
+	
+	if parser.GetToken(0).Kind==TKIdent {
+		enum.Ident = parser.PrimaryExpr()
+	}
+	
+	if parser.GetToken(0).Kind==TKColon {
+		parser.want(TKColon, ":")
+	}
+	
+	if t := parser.GetToken(0); t.Kind==TKLParen {
+		if !t.IsOperator() {
+			parser.syntaxErr("expected math operator for enum auto-incrementer.")
+			bad := new(BadSpec)
+			copyPosToNode(&bad.node, parser.GetToken(0))
+			return bad
+		} else {
+			enum.StepOp = t.Kind
+		}
+		parser.Advance(1)
+		enum.Step = parser.SubMainExpr()
+		parser.want(TKRParen, ")")
+	}
+	
+	parser.want(TKLCurl, "{")
+	for {
+		time.Sleep(100 * time.Millisecond)
+		if parser.GetToken(0).Kind==TKRCurl {
+			break
+		}
+		
+		///fmt.Printf("DoEnumSpec :: current tok: %v\n", parser.GetToken(0))
+		enum.Names = append(enum.Names, parser.PrimaryExpr())
+		if parser.GetToken(0).Kind==TKAssign {
+			parser.Advance(1)
+			enum.Values = append(enum.Values, parser.SubMainExpr())
+		} else {
+			enum.Values = append(enum.Values, nil)
+		}
+		
+		if parser.GetToken(0).Kind==TKComma {
+			parser.Advance(1)
+		} else {
+			break
+		}
+	}
+	parser.want(TKRCurl, "}")
+	if parser.GetToken(0).Kind==TKSemi {
+		parser.Advance(1)
+	}
+	return enum
+}
+
+// StructSpec = 'struct' Ident '{' *Field '}' [ ';' ] .
+// Field = VarDecl ';' | FuncDecl .
+func (parser *Parser) DoStruct(is_enum bool) Spec {
+	struc := new(StructSpec)
+	copyPosToNode(&struc.node, parser.GetToken(0))
+	parser.want(TKStruct, "struct")
+	struc.IsEnum = is_enum
+	struc.Ident = parser.PrimaryExpr()
+	parser.want(TKLCurl, "{")
+	for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != TKRCurl; t = parser.GetToken(0) {
+		time.Sleep(100 * time.Millisecond)
+		///fmt.Printf("DoStruct :: current tok: %v\n", t)
+		v_or_f_decl := parser.DoVarOrFuncDecl(false)
+		switch ast := v_or_f_decl.(type) {
+			case *VarDecl:
+				struc.Fields = append(struc.Fields, ast)
+				parser.want(TKSemi, ";")
+			case *FuncDecl:
+				struc.Methods = append(struc.Methods, ast)
+			default:
+				if is_enum {
+					parser.syntaxErr("bad field/method in enum struct")
+				} else {
+					parser.syntaxErr("bad field/method in struct")
+				}
+				bad := new(BadSpec)
+				copyPosToNode(&bad.node, parser.GetToken(0))
+				return bad
+		}
+	}
+	parser.want(TKRCurl, "}")
+	if parser.GetToken(0).Kind==TKSemi {
+		parser.Advance(1)
+	}
+	return struc
+}
+
+// UsingSpec = 'using' Expr ';' .
+func (parser *Parser) DoUsingSpec() Spec {
+	using := new(UsingSpec)
+	copyPosToNode(&using.node, parser.GetToken(0))
+	parser.want(TKUsing, "using")
+	using.Namespace = parser.SubMainExpr()
+	if !parser.got(TKSemi) {
+		parser.syntaxErr("missing ending ';' semicolon for 'using' specification.")
+		bad := new(BadSpec)
+		copyPosToNode(&bad.node, parser.GetToken(-1))
+		return bad
+	}
+	return using
+}
+
+// TypeSetSpec = 'typeset' Ident '{' *( SignatureSpec ';' ) '}' ';' .
+func (parser *Parser) DoTypeSet() Spec {
+	typeset := new(TypeSetSpec)
+	copyPosToNode(&typeset.node, parser.GetToken(0))
+	parser.want(TKTypeset, "typeset")
+	typeset.Ident = parser.PrimaryExpr()
+	parser.want(TKLCurl, "{")
+	for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != TKRCurl; t = parser.GetToken(0) {
+		time.Sleep(100 * time.Millisecond)
+		///fmt.Printf("DoTypeSet :: current tok: %v\n", t)
+		signature := parser.DoFuncSignature()
+		typeset.Signatures = append(typeset.Signatures, signature)
+		parser.want(TKSemi, ";")
+	}
+	
+	parser.want(TKRCurl, "}")
+	if !parser.got(TKSemi) {
+		parser.syntaxErr("missing ending ';' semicolon for 'typeset' specification.")
+		bad := new(BadSpec)
+		copyPosToNode(&bad.node, parser.GetToken(-1))
+		return bad
+	}
+	return typeset
+}
+
+// TypeDefSpec = 'typedef' Ident '=' SignatureSpec ';' .
+func (parser *Parser) DoTypedef() Spec {
+	typedef := new(TypeDefSpec)
+	copyPosToNode(&typedef.node, parser.GetToken(0))
+	parser.want(TKTypedef, "typedef")
+	typedef.Ident = parser.PrimaryExpr()
+	parser.want(TKAssign, "=")
+	typedef.Sig = parser.DoFuncSignature()
+	if !parser.got(TKSemi) {
+		parser.syntaxErr("missing ending ';' semicolon for 'typedef' specification.")
+		bad := new(BadSpec)
+		copyPosToNode(&bad.node, parser.GetToken(-1))
+		return bad
+	}
+	return typedef
+}
+
+// MethodMapSpec = 'methodmap' Ident [ '<' TypeExpr ] '{'  '}' [ ';' ] .
+func (parser *Parser) DoMethodMap() Spec {
+	methodmap := new(MethodMapSpec)
+	copyPosToNode(&methodmap.node, parser.GetToken(0))
+	parser.want(TKMethodMap, "methodmap")
+	methodmap.Ident = parser.PrimaryExpr()
+	if parser.GetToken(0).Kind==TKLess {
+		parser.Advance(1)
+		methodmap.Parent = parser.TypeExpr(false)
+	}
+	parser.want(TKLCurl, "{")
+	
+	parser.want(TKRCurl, "}")
+	if !parser.got(TKSemi) {
+		parser.syntaxErr("missing ending ';' semicolon for 'methodmap' specification.")
+		bad := new(BadSpec)
+		copyPosToNode(&bad.node, parser.GetToken(-1))
+		return bad
+	}
+	return methodmap
 }
 
 
@@ -510,15 +802,15 @@ func (parser *Parser) noSemi() Stmt {
 // BlockStmt = '{' *Statement '}' .
 func (parser *Parser) DoBlock() Stmt {
 	block := new(BlockStmt)
-	fmt.Printf("starting tok: %v\n", parser.GetToken(0))
+	///fmt.Printf("starting tok: %v\n", parser.GetToken(0))
 	parser.want(TKLCurl, "{")
 	copyPosToNode(&block.node, parser.tokens[parser.idx-1])
 	for t := parser.GetToken(0); t.Kind != TKRCurl && t.Kind != TKEoF; t = parser.GetToken(0) {
-		time.Sleep(350 * time.Millisecond)
-		fmt.Printf("current tok: %v\n", t)
+		time.Sleep(100 * time.Millisecond)
+		///fmt.Printf("current tok: %v\n", t)
 		n := parser.Statement()
 		if n==nil {
-			fmt.Printf("n == nil\n")
+			///fmt.Printf("n == nil\n")
 			continue
 		}
 		block.Stmts = append(block.Stmts, n)
@@ -546,7 +838,7 @@ func (parser *Parser) Statement() Stmt {
 			// parse declaration.
 			vardecl := new(DeclStmt)
 			copyPosToNode(&vardecl.node, t)
-			vardecl.D = parser.DoVarOrFuncDecl()
+			vardecl.D = parser.DoVarOrFuncDecl(false)
 			if !parser.got(TKSemi) {
 				return parser.noSemi()
 			}
@@ -615,14 +907,14 @@ func (parser *Parser) Statement() Stmt {
 			}
 			parser.idx++
 			return del
-		case TKIdent:
+		case TKIdent, TKThis:
 			// vast majority of the times,
 			// an expression starts with an identifier.
 			if t2 := parser.GetToken(1); t2.Kind==TKIdent {
 				// possible var decl with custom type.
 				vardecl := new(DeclStmt)
 				copyPosToNode(&vardecl.node, t)
-				vardecl.D = parser.DoVarOrFuncDecl()
+				vardecl.D = parser.DoVarOrFuncDecl(false)
 				if !parser.got(TKSemi) {
 					return parser.noSemi()
 				}
@@ -713,7 +1005,7 @@ func (parser *Parser) DoFor() Stmt {
 	parser.want(TKLParen, "(")
 	if parser.GetToken(0).Kind != TKSemi {
 		if t := parser.GetToken(0); t.IsType() || t.IsStorageClass() || (t.Kind==TKIdent && parser.GetToken(1).Kind==TKIdent) {
-			forstmt.Init = parser.DoVarOrFuncDecl()
+			forstmt.Init = parser.DoVarOrFuncDecl(false)
 		} else {
 			forstmt.Init = parser.MainExpr()
 		}
@@ -742,8 +1034,8 @@ func (parser *Parser) Switch() Stmt {
 	parser.want(TKRParen, ")")
 	parser.want(TKLCurl, "{")
 	bad_case := false
-	for parser.GetToken(0).Kind != TKRCurl {
-		switch t := parser.GetToken(0); t.Kind {
+	for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != TKRCurl; t = parser.GetToken(0) {
+		switch t.Kind {
 			case TKCase:
 				// next do case expressions:
 				_case := new(CaseStmt)
@@ -770,6 +1062,7 @@ func (parser *Parser) Switch() Stmt {
 				return bad
 		}
 	}
+	parser.want(TKRCurl, "}")
 errd_case:
 	if bad_case {
 		bad := new(BadStmt)
@@ -919,7 +1212,8 @@ func (parser *Parser) MainExpr() Expr {
 		c := new(CommaExpr)
 		copyPosToNode(&c.node, parser.GetToken(0))
 		c.Exprs = append(c.Exprs, a)
-		for parser.GetToken(0).Kind==TKComma {
+		for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind==TKComma; t = parser.GetToken(0) {
+			time.Sleep(100 * time.Millisecond)
 			parser.idx++
 			c.Exprs = append(c.Exprs, parser.AssignExpr())
 		}
@@ -1211,7 +1505,7 @@ func (parser *Parser) TypeExpr(need_carots bool) Expr {
 		ret_expr = texp
 		parser.idx++
 	} else {
-		parser.syntaxErr("view_as missing type expression")
+		parser.syntaxErr("missing type expression.")
 		bad := new(BadExpr)
 		copyPosToNode(&bad.node, t)
 		ret_expr = bad
@@ -1279,8 +1573,9 @@ func (parser *Parser) PostfixExpr() Expr {
 				call := new(CallExpr)
 				copyPosToNode(&call.node, t)
 				call.Func = n
-				for parser.GetToken(0).Kind != TKRParen {
+				for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != TKRParen; t = parser.GetToken(0) {
 					if len(call.ArgList) > 0 {
+						time.Sleep(100 * time.Millisecond)
 						parser.want(TKComma, ",")
 					}
 					// SP allows setting your params by name.
@@ -1326,7 +1621,12 @@ func (parser *Parser) PrimaryExpr() Expr {
 		case TKLParen:
 			parser.idx++
 			ret_expr = parser.MainExpr()
-			parser.want(TKRParen, ")")
+			if t := parser.GetToken(0); t.Kind != TKRParen {
+				parser.syntaxErr("missing ending ')' right paren for nested expression")
+				bad := new(BadExpr)
+				copyPosToNode(&bad.node, parser.GetToken(0))
+				ret_expr = bad
+			}
 		case TKOperator:
 			operator := prim.Lexeme
 			operator += parser.GetToken(1).Lexeme
@@ -1379,7 +1679,7 @@ func (parser *Parser) PrimaryExpr() Expr {
 			copyPosToNode(&null.node, prim)
 			ret_expr = null
 		default:
-			parser.syntaxErr("bad primary expression")
+			parser.syntaxErr("bad primary expression '%s'", prim.Lexeme)
 			bad := new(BadExpr)
 			copyPosToNode(&bad.node, prim)
 			ret_expr = bad
@@ -1388,216 +1688,303 @@ func (parser *Parser) PrimaryExpr() Expr {
 	return ret_expr
 }
 
-func printTabs(c rune, tabs int) {
+func printTabs(c rune, tabs int, w io.Writer) {
 	for i:=0; i < tabs; i++ {
-		fmt.Printf("%c%c", c, c)
+		fmt.Fprintf(w, "%c%c", c, c)
 	}
 }
 
-func PrintNode(n Node, tabs int) {
+func PrintNode(n Node, tabs int, w io.Writer) {
 	const c = '-'
-	printTabs(c, tabs)
+	printTabs(c, tabs, w)
 	switch ast := n.(type) {
 		case nil:
-			fmt.Printf("nil Node\n")
+			fmt.Fprintf(w, "nil Node\n")
 		case *BadStmt:
-			fmt.Printf("Bad Stmt Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+			fmt.Fprintf(w, "Bad Stmt Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
 		case *BadExpr:
-			fmt.Printf("Bad Expr Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+			fmt.Fprintf(w, "Bad Expr Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
 		case *BadSpec:
-			fmt.Printf("Bad Spec Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+			fmt.Fprintf(w, "Bad Spec Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
 		case *BadDecl:
-			fmt.Printf("Bad Decl Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+			fmt.Fprintf(w, "Bad Decl Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
 		case *NullExpr:
-			fmt.Printf("'null' expr\n")
+			fmt.Fprintf(w, "'null' expr\n")
 		case *BasicLit:
-			fmt.Printf("Basic Lit :: Value: %q - Kind: %q\n", ast.Value, LitKindToStr[ast.Kind])
+			fmt.Fprintf(w, "Basic Lit :: Value: %q - Kind: %q\n", ast.Value, LitKindToStr[ast.Kind])
 		case *ThisExpr:
-			fmt.Printf("'this' expr\n")
+			fmt.Fprintf(w, "'this' expr\n")
 		case *Name:
-			fmt.Printf("Ident: '%s'\n", ast.Value)
+			fmt.Fprintf(w, "Ident: '%s'\n", ast.Value)
 		case *UnaryExpr:
-			fmt.Printf("Unary Expr Kind: %q, Post: '%t'\n", TokenToStr[ast.Kind], ast.Post)
-			PrintNode(ast.X, tabs + 1)
+			fmt.Fprintf(w, "Unary Expr Kind: %q, Post: '%t'\n", TokenToStr[ast.Kind], ast.Post)
+			PrintNode(ast.X, tabs + 1, w)
 		case *CallExpr:
-			fmt.Printf("Call Expr\n")
-			PrintNode(ast.Func, tabs + 1)
+			fmt.Fprintf(w, "Call Expr\n")
+			PrintNode(ast.Func, tabs + 1, w)
 			if ast.ArgList != nil {
-				printTabs(c, tabs)
-				fmt.Printf("Call Expr Arg List\n")
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Call Expr Arg List\n")
 				for i := range ast.ArgList {
-					PrintNode(ast.ArgList[i], tabs + 1)
+					PrintNode(ast.ArgList[i], tabs + 1, w)
 				}
 			}
 		case *IndexExpr:
-			fmt.Printf("Index Expr Obj\n")
-			PrintNode(ast.X, tabs + 1)
-			printTabs(c, tabs)
-			fmt.Printf("Index Expr Index\n")
-			PrintNode(ast.Index, tabs + 1)
+			fmt.Fprintf(w, "Index Expr Obj\n")
+			PrintNode(ast.X, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Index Expr Index\n")
+			PrintNode(ast.Index, tabs + 1, w)
 		case *NameSpaceExpr:
-			fmt.Printf("Namespace Expr Name\n")
-			PrintNode(ast.N, tabs + 1)
-			printTabs(c, tabs)
-			fmt.Printf("Namespace Expr Id\n")
-			PrintNode(ast.Id, tabs + 1)
+			fmt.Fprintf(w, "Namespace Expr Name\n")
+			PrintNode(ast.N, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Namespace Expr Id\n")
+			PrintNode(ast.Id, tabs + 1, w)
 		case *FieldExpr:
-			fmt.Printf("Field Expr\n")
-			PrintNode(ast.X, tabs + 1)
-			PrintNode(ast.Sel, tabs + 1)
+			fmt.Fprintf(w, "Field Expr\n")
+			PrintNode(ast.X, tabs + 1, w)
+			PrintNode(ast.Sel, tabs + 1, w)
 		case *ViewAsExpr:
-			fmt.Printf("view_as Expr\n")
-			PrintNode(ast.Type, tabs + 1)
-			PrintNode(ast.X, tabs + 1)
+			fmt.Fprintf(w, "view_as Expr\n")
+			PrintNode(ast.Type, tabs + 1, w)
+			PrintNode(ast.X, tabs + 1, w)
 		case *BinExpr:
-			fmt.Printf("Binary Expr - Kind: %q\n", TokenToStr[ast.Kind])
-			PrintNode(ast.L, tabs + 1)
-			PrintNode(ast.R, tabs + 1)
+			fmt.Fprintf(w, "Binary Expr - Kind: %q\n", TokenToStr[ast.Kind])
+			PrintNode(ast.L, tabs + 1, w)
+			PrintNode(ast.R, tabs + 1, w)
 		case *TernaryExpr:
-			fmt.Printf("Ternary Expr\n")
-			PrintNode(ast.A, tabs + 1)
-			PrintNode(ast.B, tabs + 1)
-			PrintNode(ast.C, tabs + 1)
+			fmt.Fprintf(w, "Ternary Expr\n")
+			PrintNode(ast.A, tabs + 1, w)
+			PrintNode(ast.B, tabs + 1, w)
+			PrintNode(ast.C, tabs + 1, w)
 		case *NamedArg:
-			fmt.Printf("Named Arg Expr\n")
-			PrintNode(ast.X, tabs + 1)
+			fmt.Fprintf(w, "Named Arg Expr\n")
+			PrintNode(ast.X, tabs + 1, w)
 		case *TypedExpr:
 			if ast.Tok.Kind==TKIdent {
-				fmt.Printf("Typed Expr - Kind: %q\n", ast.Tok.Lexeme)
+				fmt.Fprintf(w, "Typed Expr - Kind: %q\n", ast.Tok.Lexeme)
 			} else {
-				fmt.Printf("Typed Expr - Kind: %q\n", TokenToStr[ast.Tok.Kind])
+				fmt.Fprintf(w, "Typed Expr - Kind: %q\n", TokenToStr[ast.Tok.Kind])
 			}
 		case *CommaExpr:
-			fmt.Printf("Comma Expr\n")
+			fmt.Fprintf(w, "Comma Expr\n")
 			for i := range ast.Exprs {
-				PrintNode(ast.Exprs[i], tabs + 1)
+				PrintNode(ast.Exprs[i], tabs + 1, w)
 			}
 		case *EllipsesExpr:
-			fmt.Printf("Ellipses '...' Expr\n")
+			fmt.Fprintf(w, "Ellipses '...' Expr\n")
 		case *RetStmt:
-			fmt.Printf("Return Statement\n")
+			fmt.Fprintf(w, "Return Statement\n")
 			if ast.X != nil {
-				PrintNode(ast.X, tabs + 1)
+				PrintNode(ast.X, tabs + 1, w)
 			}
 		case *IfStmt:
-			fmt.Printf("If Statement\n")
-			PrintNode(ast.Cond, tabs + 1)
-			PrintNode(ast.Then, tabs + 1)
+			fmt.Fprintf(w, "If Statement\n")
+			PrintNode(ast.Cond, tabs + 1, w)
+			PrintNode(ast.Then, tabs + 1, w)
 			if ast.Else != nil {
-				printTabs(c, tabs)
-				fmt.Printf("If Statement :: Else\n")
-				PrintNode(ast.Else, tabs + 1)
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "If Statement :: Else\n")
+				PrintNode(ast.Else, tabs + 1, w)
 			}
 		case *WhileStmt:
-			fmt.Printf("While Statement: is Do-While? %t\n", ast.Do)
-			PrintNode(ast.Cond, tabs + 1)
-			PrintNode(ast.Body, tabs + 1)
+			fmt.Fprintf(w, "While Statement: is Do-While? %t\n", ast.Do)
+			PrintNode(ast.Cond, tabs + 1, w)
+			PrintNode(ast.Body, tabs + 1, w)
 		case *ForStmt:
-			fmt.Printf("For Statement\n")
+			fmt.Fprintf(w, "For Statement\n")
 			if ast.Init != nil {
-				printTabs(c, tabs)
-				fmt.Printf("For Statement Init\n")
-				PrintNode(ast.Init, tabs + 1)
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "For Statement Init\n")
+				PrintNode(ast.Init, tabs + 1, w)
 			}
 			if ast.Cond != nil {
-				printTabs(c, tabs)
-				fmt.Printf("For Statement Cond\n")
-				PrintNode(ast.Cond, tabs + 1)
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "For Statement Cond\n")
+				PrintNode(ast.Cond, tabs + 1, w)
 			}
 			if ast.Post != nil {
-				printTabs(c, tabs)
-				fmt.Printf("For Statement Post\n")
-				PrintNode(ast.Post, tabs + 1)
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "For Statement Post\n")
+				PrintNode(ast.Post, tabs + 1, w)
 			}
-			printTabs(c, tabs)
-			fmt.Printf("For Statement Body\n")
-			PrintNode(ast.Body, tabs + 1)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "For Statement Body\n")
+			PrintNode(ast.Body, tabs + 1, w)
 		case *ExprStmt:
-			fmt.Printf("Expr Statement\n")
-			PrintNode(ast.X, tabs + 1)
+			fmt.Fprintf(w, "Expr Statement\n")
+			PrintNode(ast.X, tabs + 1, w)
 		case *BlockStmt:
-			fmt.Printf("Block Statement\n")
+			fmt.Fprintf(w, "Block Statement\n")
 			for i := range ast.Stmts {
-				PrintNode(ast.Stmts[i], tabs + 1)
+				PrintNode(ast.Stmts[i], tabs + 1, w)
 			}
 		case *DeleteStmt:
-			fmt.Printf("Delete Statement\n")
-			PrintNode(ast.X, tabs + 1)
+			fmt.Fprintf(w, "Delete Statement\n")
+			PrintNode(ast.X, tabs + 1, w)
 		case *SwitchStmt:
-			fmt.Printf("Switch Statement Condition\n")
-			PrintNode(ast.Cond, tabs + 1)
-			printTabs(c, tabs)
-			fmt.Printf("Switch Statement Cases\n")
+			fmt.Fprintf(w, "Switch Statement Condition\n")
+			PrintNode(ast.Cond, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Switch Statement Cases\n")
 			for i := range ast.Cases {
-				PrintNode(ast.Cases[i], tabs + 1)
+				PrintNode(ast.Cases[i], tabs + 1, w)
 			}
 			if ast.Default != nil {
-				printTabs(c, tabs)
-				fmt.Printf("Switch Statement Default Case\n")
-				PrintNode(ast.Default, tabs + 1)
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Switch Statement Default Case\n")
+				PrintNode(ast.Default, tabs + 1, w)
 			}
 		case *CaseStmt:
-			fmt.Printf("Case Statement Exprs\n")
-			PrintNode(ast.Case, tabs + 1)
-			printTabs(c, tabs)
-			fmt.Printf("Case Statement Body\n")
-			PrintNode(ast.Body, tabs + 1)
+			fmt.Fprintf(w, "Case Statement Exprs\n")
+			PrintNode(ast.Case, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Case Statement Body\n")
+			PrintNode(ast.Body, tabs + 1, w)
 		case *FlowStmt:
-			fmt.Printf("Flow Statement: %q\n", TokenToStr[ast.Kind])
+			fmt.Fprintf(w, "Flow Statement: %q\n", TokenToStr[ast.Kind])
 		case *AssertStmt:
-			fmt.Printf("Assert Statement\n")
-			PrintNode(ast.X, tabs + 1)
+			fmt.Fprintf(w, "Assert Statement\n")
+			PrintNode(ast.X, tabs + 1, w)
 		case *StaticAssertStmt:
-			fmt.Printf("Static Assert Statement\n")
-			PrintNode(ast.A, tabs + 1)
-			PrintNode(ast.B, tabs + 1)
+			fmt.Fprintf(w, "Static Assert Statement\n")
+			PrintNode(ast.A, tabs + 1, w)
+			PrintNode(ast.B, tabs + 1, w)
 		case *DeclStmt:
-			fmt.Printf("Declaration Statement\n")
-			PrintNode(ast.D, tabs + 1)
+			fmt.Fprintf(w, "Declaration Statement\n")
+			PrintNode(ast.D, tabs + 1, w)
 		case *TypeSpec:
-			fmt.Printf("Type Specification\n")
-			PrintNode(ast.Type, tabs + 1)
-			printTabs(c, tabs)
-			fmt.Printf("Type Specification Dims:: %d\n", ast.Dims)
-			printTabs(c, tabs)
-			fmt.Printf("Type Specification Is Reference:: %t\n", ast.IsRef)
-		case *VarDecl:
-			fmt.Printf("Var Declaration Type\n")
-			PrintNode(ast.Type, tabs + 1)
-			printTabs(c, tabs)
-			fmt.Printf("Var Declaration Names\n")
+			fmt.Fprintf(w, "Type Specification\n")
+			PrintNode(ast.Type, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Type Specification Dims:: %d\n", ast.Dims)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Type Specification Is Reference:: %t\n", ast.IsRef)
+		case *EnumSpec:
+			fmt.Fprintf(w, "Enum Specification\n")
+			PrintNode(ast.Ident, tabs + 1, w)
+			if ast.Step != nil {
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Enum Specification Step:: Op: %s\n", TokenToStr[ast.StepOp])
+				PrintNode(ast.Step, tabs + 1, w)
+			}
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Enum Specification Names\n")
 			for i := range ast.Names {
-				PrintNode(ast.Names[i], tabs + 1)
+				PrintNode(ast.Names[i], tabs + 1, w)
 			}
-			printTabs(c, tabs)
-			fmt.Printf("Var Declaration Inits\n")
-			for i := range ast.Inits {
-				PrintNode(ast.Inits[i], tabs + 1)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Enum Specification Values\n")
+			for i := range ast.Values {
+				PrintNode(ast.Values[i], tabs + 1, w)
 			}
-			printTabs(c, tabs)
-			fmt.Printf("Var Declaration Flags:: %d\n", ast.ClassFlags)
-		case *FuncDecl:
-			fmt.Printf("Func Declaration Type\n")
-			PrintNode(ast.RetType, tabs + 1)
-			printTabs(c, tabs)
-			fmt.Printf("Func Declaration Name\n")
-			PrintNode(ast.Ident, tabs + 1)
-			printTabs(c, tabs)
-			fmt.Printf("Var Declaration Flags:: %d\n", ast.ClassFlags)
+		case *StructSpec:
+			if ast.IsEnum {
+				fmt.Fprintf(w, "Enum Struct Specification\n")
+			} else {
+				fmt.Fprintf(w, "Struct Specification\n")
+			}
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Struct Ident\n")
+			PrintNode(ast.Ident, tabs + 1, w)
+			if len(ast.Fields) > 0 {
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Struct Fields\n")
+				for i := range ast.Fields {
+					PrintNode(ast.Fields[i], tabs + 1, w)
+				}
+			}
+			if len(ast.Methods) > 0 {
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Struct Methods\n")
+				for i := range ast.Methods {
+					PrintNode(ast.Methods[i], tabs + 1, w)
+				}
+			}
+		case *UsingSpec:
+			fmt.Fprintf(w, "Using Specification\n")
+			PrintNode(ast.Namespace, tabs + 1, w)
+		case *SignatureSpec:
+			fmt.Fprintf(w, "Function Signature Specification\n")
+			PrintNode(ast.Type, tabs + 1, w)
 			if len(ast.Params) > 0 {
-				printTabs(c, tabs)
-				fmt.Printf("Func Declaration Params\n")
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Function Signature Params\n")
 				for i := range ast.Params {
-					PrintNode(ast.Params[i], tabs + 1)
+					PrintNode(ast.Params[i], tabs + 1, w)
+				}
+			}
+		case *TypeDefSpec:
+			fmt.Fprintf(w, "TypeDef Specification Ident\n")
+			PrintNode(ast.Ident, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "TypeDef Specification Signature\n")
+			PrintNode(ast.Sig, tabs + 1, w)
+		case *TypeSetSpec:
+			fmt.Fprintf(w, "Typeset Specification Ident\n")
+			PrintNode(ast.Ident, tabs + 1, w)
+			if len(ast.Signatures) > 0 {
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Typeset Signatures\n")
+				for i := range ast.Signatures {
+					PrintNode(ast.Signatures[i], tabs + 1, w)
+				}
+			}
+		case *VarDecl:
+			fmt.Fprintf(w, "Var Declaration Type\n")
+			PrintNode(ast.Type, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Var Declaration Names\n")
+			for i := range ast.Names {
+				PrintNode(ast.Names[i], tabs + 1, w)
+			}
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Var Declaration Array Dims\n")
+			for i := range ast.Dims {
+				if ast.Dims[i] != nil {
+					for _, dim := range ast.Dims[i] {
+						PrintNode(dim, tabs + 1, w)
+					}
+				}
+			}
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Var Declaration Inits\n")
+			for i := range ast.Inits {
+				PrintNode(ast.Inits[i], tabs + 1, w)
+			}
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Var Declaration Flags:: %s\n", ast.ClassFlags.String())
+		case *FuncDecl:
+			fmt.Fprintf(w, "Func Declaration Type\n")
+			PrintNode(ast.RetType, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Func Declaration Name\n")
+			PrintNode(ast.Ident, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Func Declaration Flags:: %s\n", ast.ClassFlags.String())
+			if len(ast.Params) > 0 {
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Func Declaration Params\n")
+				for i := range ast.Params {
+					PrintNode(ast.Params[i], tabs + 1, w)
 				}
 			}
 			if ast.Body != nil {
-				printTabs(c, tabs)
-				fmt.Printf("Func Declaration Body\n")
-				PrintNode(ast.Body, tabs + 1)
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Func Declaration Body\n")
+				PrintNode(ast.Body, tabs + 1, w)
+			}
+		case *TypeDecl:
+			fmt.Fprintf(w, "Type Declaration\n")
+			PrintNode(ast.Type, tabs + 1, w)
+		case *Plugin:
+			fmt.Fprintf(w, "Plugin File\n")
+			for i := range ast.Decls {
+				PrintNode(ast.Decls[i], tabs + 1, w)
 			}
 		default:
-			fmt.Printf("default :: %T\n", ast)
+			fmt.Fprintf(w, "default :: %T\n", ast)
 	}
 }
 
@@ -1694,11 +2081,50 @@ func Walk(n Node, visitor func(Node) bool) {
 			Walk(ast.D, visitor)
 		case *TypeSpec:
 			Walk(ast.Type, visitor)
+		case *EnumSpec:
+			Walk(ast.Ident, visitor)
+			Walk(ast.Step, visitor)
+			for i := range ast.Names {
+				Walk(ast.Names[i], visitor)
+			}
+			for i := range ast.Values {
+				Walk(ast.Values[i], visitor)
+			}
+		case *StructSpec:
+			Walk(ast.Ident, visitor)
+			for i := range ast.Fields {
+				Walk(ast.Fields[i], visitor)
+			}
+			for i := range ast.Methods {
+				Walk(ast.Methods[i], visitor)
+			}
+		case *UsingSpec:
+			Walk(ast.Namespace, visitor)
+		case *SignatureSpec:
+			Walk(ast.Type, visitor)
+			for i := range ast.Params {
+				Walk(ast.Params[i], visitor)
+			}
+		case *TypeDefSpec:
+			Walk(ast.Ident, visitor)
+			Walk(ast.Sig, visitor)
+		case *TypeSetSpec:
+			Walk(ast.Ident, visitor)
+			for i := range ast.Signatures {
+				Walk(ast.Signatures[i], visitor)
+			}
 		case *VarDecl:
 			Walk(ast.Type, visitor)
 			for i := range ast.Names {
 				if ast.Names[i] != nil {
 					Walk(ast.Names[i], visitor)
+				}
+			}
+			for i := range ast.Dims {
+				if ast.Dims[i] != nil {
+					for _, dim := range ast.Dims[i] {
+						Walk(dim, visitor)
+					}
 				}
 			}
 			for i := range ast.Inits {
@@ -1714,6 +2140,12 @@ func Walk(n Node, visitor func(Node) bool) {
 			}
 			if ast.Body != nil {
 				Walk(ast.Body, visitor)
+			}
+		case *TypeDecl:
+			Walk(ast.Type, visitor)
+		case *Plugin:
+			for i := range ast.Decls {
+				Walk(ast.Decls[i], visitor)
 			}
 	}
 }

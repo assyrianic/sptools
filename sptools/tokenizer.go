@@ -320,7 +320,7 @@ var (
 		"try": TKTry,
 		"typedef": TKTypedef,
 		"typeof": TKTypeof,
-		"typesef": TKTypeset,
+		"typeset": TKTypeset,
 		"uint8": TKUInt8,
 		"uint16": TKUInt16,
 		"uint32": TKUInt32,
@@ -466,7 +466,7 @@ var (
 		TKTry: "try",
 		TKTypedef: "typedef",
 		TKTypeof: "typeof",
-		TKTypeset: "typesef",
+		TKTypeset: "typeset",
 		TKUInt8: "uint8",
 		TKUInt16: "uint16",
 		TKUInt32: "uint32",
@@ -582,14 +582,24 @@ func (tok Token) IsStorageClass() bool {
 }
 
 
+// TODO: clean up tokenizer code.
 /*
-type scanner struct {
-	runes                []rune
-	filename             string
-	idx, line, lineStart int
-	max, num_msgs        int
+type Scanner struct {
+	Runes []rune
+	Filename string
+	Idx, Line, LineStart int
+	Num_msgs int
+}
+
+func (s *Scanner) Read(i int) rune {
+	if l := len(s.Runes); s.Idx + i >= l {
+		return 0
+	} else {
+		return s.Runes[s.Idx + i]
+	}
 }
 */
+
 
 func lexBinary(runes []rune, idx, max int, filename string) (int, bool) {
 	if idx >= max || runes[idx] != '0' {
