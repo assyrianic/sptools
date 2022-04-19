@@ -113,9 +113,10 @@ const (
 	TKObject
 	TKOperator
 	
-	// package, private, protected, public
+	// package, private, property, protected, public
 	TKPackage
 	TKPrivate
+	TKProperty
 	TKProtected
 	TKPublic
 	
@@ -303,6 +304,7 @@ var (
 		"operator": TKOperator,
 		"package": TKPackage,
 		"private": TKPrivate,
+		"property": TKProperty,
 		"protected": TKProtected,
 		"public": TKPublic,
 		"readonly": TKReadOnly,
@@ -449,6 +451,7 @@ var (
 		TKOperator: "operator",
 		TKPackage: "package",
 		TKPrivate: "private",
+		TKProperty: "property",
 		TKProtected: "protected",
 		TKPublic: "public",
 		TKReadOnly: "readonly",

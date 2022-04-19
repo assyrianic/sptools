@@ -106,12 +106,22 @@ func (parser *Parser) TopDecl() Node {
 		///fmt.Printf("TopDecl :: current tok: %v\n", t)
 		if t.IsStorageClass() || t.IsType() || t.Kind==TKIdent && parser.GetToken(1).Kind==TKIdent {
 			v_or_f_decl := parser.DoVarOrFuncDecl(false)
+			if _, is_var_decl := v_or_f_decl.(*VarDecl); is_var_decl {
+				if !parser.got(TKSemi) {
+					bad := new(BadDecl)
+					copyPosToNode(&bad.node, t)
+					///fmt.Printf("TopDecl :: bad Node: %s | Line: %d, Col: %d\n", t.Lexeme, t.Line, t.Col)
+					plugin.Decls = append(plugin.Decls, bad)
+					continue
+				}
+			}
 			plugin.Decls = append(plugin.Decls, v_or_f_decl)
 		} else {
 			type_decl := new(TypeDecl)
 			copyPosToNode(&type_decl.node, t)
 			switch t.Kind {
-				///case TKMethodMap:
+				case TKMethodMap:
+					type_decl.Type = parser.DoMethodMap()
 				case TKTypedef:
 					type_decl.Type = parser.DoTypedef()
 				case TKTypeset:
@@ -246,8 +256,8 @@ type (
 	// name1, name2[n], name3=expr;
 	VarDecl struct {
 		Type Spec // *TypeSpec
-		Names, Inits []Expr
-		Dims [][]Expr // a var can have multiple dims, account for em all.
+		Names []Expr
+		Dims, Inits [][]Expr // a var can have multiple dims, account for em all.
 		// nil index if there was no initializer.
 		ClassFlags StorageClassFlags
 		decl
@@ -312,17 +322,22 @@ func (parser *Parser) DoVarDeclarator(vdecl *VarDecl, param bool) {
 		
 		if parser.GetToken(0).Kind==TKAssign {
 			parser.idx++
+			var inits []Expr
 			// { expr list } .
 			if parser.GetToken(0).Kind==TKLCurl {
-				parser.idx++
+				parser.want(TKLCurl, "{")
 				for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != TKRCurl; t = parser.GetToken(0) {
-					vdecl.Inits = append(vdecl.Inits, parser.MainExpr())
+					inits = append(inits, parser.AssignExpr())
+					if parser.GetToken(0).Kind==TKComma {
+						parser.Advance(1)
+					}
 				}
 				parser.want(TKRCurl, "}")
 			} else {
 				// = expr .
-				vdecl.Inits = append(vdecl.Inits, parser.SubMainExpr())
+				inits = append(inits, parser.SubMainExpr())
 			}
+			vdecl.Inits = append(vdecl.Inits, inits)
 		} else {
 			vdecl.Inits = append(vdecl.Inits, nil)
 		}
@@ -429,13 +444,31 @@ type (
 		Parent Expr // TypeExpr
 		Props []Spec // []*MethodMapPropSpec
 		Methods []Spec
+		Nullable bool
 		spec
 	}
 	
-	// property Type name {}
+	/* property Type name {
+	 *    public get() {}
+	 *    public set(Type param) {}
+	 *    
+	 *    public native get();
+	 *    public native set(Type param);
+	 * }
+	 */
 	MethodMapPropSpec struct {
-		Type Spec // *TypeSpec
-		Ident Expr
+		Type, Ident Expr
+		SetterParams []Decl
+		GetterBlock, SetterBlock Stmt
+		GetterClass, SetterClass StorageClassFlags
+		spec
+	}
+	// public Type name(params) {}
+	// public native Type name(params);
+	MethodMapMethodSpec struct {
+		Impl Decl
+		IsCtor bool
+		IsDtor bool
 		spec
 	}
 	
@@ -667,24 +700,92 @@ func (parser *Parser) DoTypedef() Spec {
 	return typedef
 }
 
-// MethodMapSpec = 'methodmap' Ident [ '<' TypeExpr ] '{'  '}' [ ';' ] .
+
+// MethodMapSpec = 'methodmap' Ident [ '__nullable__' ] [ '<' TypeExpr ] '{' [ MethodCtor ] *MethodMapEntry '}' [ ';' ] .
+// MethodCtor = 'public' Ident ParamList ( Block | ';' ) .
+// MethodMapEntry = MethodMapProp | FuncDecl .
+// MethodMapProp = 'property' TypeExpr Ident '{' PropGetter [ PropSetter ] '}' .
+// PropGetter = 'public' [ 'native' ] 'get' '(' ')' ( Block | ';' ) .
+// PropSetter = 'public' [ 'native' ] 'set' ParamList ( Block | ';' ) .
 func (parser *Parser) DoMethodMap() Spec {
 	methodmap := new(MethodMapSpec)
 	copyPosToNode(&methodmap.node, parser.GetToken(0))
 	parser.want(TKMethodMap, "methodmap")
 	methodmap.Ident = parser.PrimaryExpr()
+	if parser.GetToken(0).Kind==TKNullable {
+		parser.Advance(1)
+		methodmap.Nullable = true
+	}
+	
 	if parser.GetToken(0).Kind==TKLess {
 		parser.Advance(1)
 		methodmap.Parent = parser.TypeExpr(false)
 	}
+	
 	parser.want(TKLCurl, "{")
 	
+	for t := parser.GetToken(0); t.Kind != TKEoF && (t.Kind==TKPublic || t.Kind==TKProperty); t = parser.GetToken(0) {
+		switch t.Kind {
+			case TKPublic:
+				parser.Advance(1)
+			case TKProperty:
+				parser.Advance(1)
+				prop := new(MethodMapPropSpec)
+				prop.Type = parser.TypeExpr(false)
+				prop.Ident = parser.PrimaryExpr()
+				parser.want(TKLCurl, "{")
+				// getter part.
+				prop.GetterClass = parser.StorageClass()
+				if parser.GetToken(0).Lexeme != "get" {
+					parser.syntaxErr("expected 'get' implementation for methodmap property.")
+					bad := new(BadSpec)
+					copyPosToNode(&bad.node, parser.GetToken(-1))
+					return bad
+				}
+				parser.Advance(1)
+				parser.want(TKLParen, "(")
+				parser.want(TKRParen, ")")
+				if end := parser.GetToken(0); end.Kind==TKLCurl {
+					prop.GetterBlock = parser.DoBlock()
+				} else if end.Kind==TKSemi {
+					parser.Advance(1)
+				} else {
+					parser.syntaxErr("expected ending } or ; for get implementation on methodmap property.")
+					bad := new(BadSpec)
+					copyPosToNode(&bad.node, parser.GetToken(-1))
+					return bad
+				}
+				
+				// setter part.
+				if parser.GetToken(0).Kind==TKPublic {
+					prop.SetterClass = parser.StorageClass()
+					if parser.GetToken(0).Lexeme != "set" {
+						parser.syntaxErr("expected 'set' implementation for methodmap property.")
+						bad := new(BadSpec)
+						copyPosToNode(&bad.node, parser.GetToken(-1))
+						return bad
+					}
+					parser.Advance(1)
+					prop.SetterParams = parser.DoParamList()
+					if end := parser.GetToken(0); end.Kind==TKLCurl {
+						prop.SetterBlock = parser.DoBlock()
+					} else if end.Kind==TKSemi {
+						parser.Advance(1)
+					} else {
+						parser.syntaxErr("expected ending } or ; for set implementation on methodmap property.")
+						bad := new(BadSpec)
+						copyPosToNode(&bad.node, parser.GetToken(-1))
+						return bad
+					}
+				}
+				parser.want(TKRCurl, "}")
+				methodmap.Props = append(methodmap.Props, prop)
+		}
+	}
+	
 	parser.want(TKRCurl, "}")
-	if !parser.got(TKSemi) {
-		parser.syntaxErr("missing ending ';' semicolon for 'methodmap' specification.")
-		bad := new(BadSpec)
-		copyPosToNode(&bad.node, parser.GetToken(-1))
-		return bad
+	if parser.GetToken(0).Kind==TKSemi {
+		parser.Advance(1)
 	}
 	return methodmap
 }
@@ -1931,6 +2032,45 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 					PrintNode(ast.Signatures[i], tabs + 1, w)
 				}
 			}
+		case *MethodMapSpec:
+			fmt.Fprintf(w, "Methodmap Specification Ident\n")
+			PrintNode(ast.Ident, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Methodmap Specification:: Is Nullable? %t\n", ast.Nullable)
+			if ast.Parent != nil {
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Methodmap Specification Derived-From\n")
+				PrintNode(ast.Parent, tabs + 1, w)
+			}
+			if len(ast.Props) > 0 {
+				printTabs(c, tabs, w)
+				fmt.Fprintf(w, "Methodmap Specification Props\n")
+				for i := range ast.Props {
+					PrintNode(ast.Props[i], tabs + 1, w)
+				}
+			}
+		case *MethodMapPropSpec:
+			fmt.Fprintf(w, "Methodmap Property Specification Type\n")
+			PrintNode(ast.Type, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Methodmap Property Ident\n")
+			PrintNode(ast.Ident, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Methodmap Property Get Storage Class: '%s'\n", ast.GetterClass.String())
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Methodmap Property Get Block\n")
+			PrintNode(ast.GetterBlock, tabs + 1, w)
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Methodmap Property Set Storage Class: '%s'\n", ast.SetterClass.String())
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Methodmap Property Set Params\n")
+			for i := range ast.SetterParams {
+				PrintNode(ast.SetterParams[i], tabs + 1, w)
+			}
+			printTabs(c, tabs, w)
+			fmt.Fprintf(w, "Methodmap Property Set Block\n")
+			PrintNode(ast.SetterBlock, tabs + 1, w)
+		case *MethodMapMethodSpec:
 		case *VarDecl:
 			fmt.Fprintf(w, "Var Declaration Type\n")
 			PrintNode(ast.Type, tabs + 1, w)
@@ -1951,7 +2091,11 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 			printTabs(c, tabs, w)
 			fmt.Fprintf(w, "Var Declaration Inits\n")
 			for i := range ast.Inits {
-				PrintNode(ast.Inits[i], tabs + 1, w)
+				if ast.Inits[i] != nil {
+					for _, var_init := range ast.Inits[i] {
+						PrintNode(var_init, tabs + 1, w)
+					}
+				}
 			}
 			printTabs(c, tabs, w)
 			fmt.Fprintf(w, "Var Declaration Flags:: %s\n", ast.ClassFlags.String())
@@ -2113,6 +2257,25 @@ func Walk(n Node, visitor func(Node) bool) {
 			for i := range ast.Signatures {
 				Walk(ast.Signatures[i], visitor)
 			}
+		case *MethodMapSpec:
+			Walk(ast.Ident, visitor)
+			Walk(ast.Parent, visitor)
+			for i := range ast.Props {
+				Walk(ast.Props[i], visitor)
+			}
+			for i := range ast.Methods {
+				Walk(ast.Methods[i], visitor)
+			}
+		case *MethodMapPropSpec:
+			Walk(ast.Type, visitor)
+			Walk(ast.Ident, visitor)
+			Walk(ast.GetterBlock, visitor)
+			for i := range ast.SetterParams {
+				Walk(ast.SetterParams[i], visitor)
+			}
+			Walk(ast.SetterBlock, visitor)
+		case *MethodMapMethodSpec:
+			Walk(ast.Impl, visitor)
 		case *VarDecl:
 			Walk(ast.Type, visitor)
 			for i := range ast.Names {
@@ -2129,7 +2292,9 @@ func Walk(n Node, visitor func(Node) bool) {
 			}
 			for i := range ast.Inits {
 				if ast.Inits[i] != nil {
-					Walk(ast.Inits[i], visitor)
+					for _, var_init := range ast.Inits[i] {
+						Walk(var_init, visitor)
+					}
 				}
 			}
 		case *FuncDecl:

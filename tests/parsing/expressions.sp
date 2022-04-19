@@ -1,3 +1,32 @@
+methodmap foo {
+	property int bar {
+		public get() {
+			return bar_peanuts;
+		}
+	}
+	property Decimal baz {
+		public native get();
+		public native set(Decimal value);
+	}
+	
+	property int barnaby {
+		public get() {
+			return bar_peanuts;
+		}
+		public set(int v) {
+			this.baz = view_as< Decimal >(v);
+		}
+	}
+}
+
+/*
+public Extension __ext_core = {
+	name = "Core",
+	file = "core",
+	autoload = 0,
+	required = 0,
+};
+
 using __intrinsics__.Handle;
 
 typeset SDKHookCB {
@@ -63,9 +92,11 @@ enum struct Donor {
 		int curr_time = GetTime();
 		int week_stamp = weeks * DONOR_TIME;
 		PrintToConsole(client, "[DonorLite] :: weeks %i, DONOR_TIME %i, week_stamp %i, donor_time %i", weeks, DONOR_TIME, week_stamp, donor_time);
-		if( donor_time > 0 && donor_time > curr_time )
+		if( donor_time > 0 && donor_time > curr_time ) {
 			donor_time += week_stamp;
-		else donor_time = curr_time + week_stamp;
+		} else {
+			donor_time = curr_time + week_stamp;
+		}
 		
 		PrintToConsole(client, "[DonorLite] :: curr_time %i, donor_time %i", curr_time, donor_time);
 		char new_timestamp[TIMESTAMP_SIZE]; IntToString(donor_time, new_timestamp, sizeof(new_timestamp));
@@ -138,5 +169,5 @@ enum struct Donor {
 			case DonorStatus_Expired: CreateTimer(10.0, DonorExpiredMessage, userid);
 		}
 	}
-}
-;
+};
+*/
