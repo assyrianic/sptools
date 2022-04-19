@@ -94,9 +94,6 @@ func (parser *Parser) Start() Node {
 // top-level plugin.
 type Plugin struct {
 	Decls []Decl
-	///Funcs map[string]*FuncDecl
-	///Vars  map[string]*VarDecl
-	///Types map[string]*TypeDecl
 	node
 }
 

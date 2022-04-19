@@ -225,16 +225,16 @@ func evalAdd(tokens []Token, i *int, macros map[string]macro) (int, bool) {
 	}
 	return sum, true
 }
-// MulExpr = Term *( ( '*' | '/' | '%' ) Term ) .
+// MulExpr = Prefix *( ( '*' | '/' | '%' ) Prefix ) .
 func evalMul(tokens []Token, i *int, macros map[string]macro) (int, bool) {
-	sum, res := evalTerm(tokens, i, macros)
+	sum, res := evalPrefix(tokens, i, macros)
 	if !res {
 		return 0, false
 	}
 	for *i < len(tokens) && (tokens[*i].Kind==TKMul || tokens[*i].Kind==TKDiv || tokens[*i].Kind==TKMod) {
 		k := tokens[*i].Kind
 		*i++
-		s, b := evalTerm(tokens, i, macros)
+		s, b := evalPrefix(tokens, i, macros)
 		if !b {
 			return 0, false
 		}
@@ -249,6 +249,27 @@ func evalMul(tokens []Token, i *int, macros map[string]macro) (int, bool) {
 	}
 	return sum, true
 }
+
+// Prefix = *( '!' | '~' | '-' ) Term
+func evalPrefix(tokens []Token, i *int, macros map[string]macro) (int, bool) {
+	switch t := tokens[*i]; t.Kind {
+		case TKNot:
+			*i++
+			val, res := evalPrefix(tokens, i, macros)
+			return boolToInt(!intToBool(val)), res
+		case TKCompl:
+			*i++
+			val, res := evalPrefix(tokens, i, macros)
+			return ^val, res
+		case TKSub:
+			*i++
+			val, res := evalPrefix(tokens, i, macros)
+			return -val, res
+		default:
+			return evalTerm(tokens, i, macros)
+	}
+}
+
 // Term = ident | 'defined' ident | integer | '(' Expr ')'.
 func evalTerm(tokens []Token, i *int, macros map[string]macro) (int, bool) {
 	switch t := tokens[*i]; t.Kind {
