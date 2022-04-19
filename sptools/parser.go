@@ -1794,7 +1794,7 @@ func (parser *Parser) PostfixExpr() Expr {
 				call := new(CallExpr)
 				copyPosToNode(&call.node, t)
 				call.Func = n
-				call.ArgList = parser.ExprList(TKRParen, TKComma, true)
+				call.ArgList = parser.ExprList(TKRParen, TKComma, false)
 				parser.want(TKRParen, ")")
 				n = call
 		}
@@ -1836,7 +1836,7 @@ func (parser *Parser) PrimaryExpr() Expr {
 			brktexpr := new(BracketExpr)
 			copyPosToNode(&brktexpr.node, prim)
 			parser.Advance(1)
-			brktexpr.Exprs = parser.ExprList(TKRCurl, TKComma, false)
+			brktexpr.Exprs = parser.ExprList(TKRCurl, TKComma, true)
 			ret_expr = brktexpr
 		case TKOperator:
 			operator := prim.Lexeme
