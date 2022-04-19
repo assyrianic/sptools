@@ -5,6 +5,7 @@ import (
 	"os"
 	"io"
 	"io/ioutil"
+	"runtime/debug"
 )
 
 // colorful strings for printing.
@@ -21,7 +22,7 @@ const (
 
 // prints out a message like: "(filename:line:col) msgtype: **** msg_fmt ****" to io.Writer
 // 'msg_cnt, line, col' can be nil
-func writeMsg(msg_cnt *int, w io.Writer, filename, msgtype, color string, line, col *int, msg_fmt string, args ...interface{}) {
+func writeMsg(msg_cnt *int, w io.Writer, filename, msgtype, color string, line, col *uint32, msg_fmt string, args ...interface{}) {
 	if filename != "" {
 		fmt.Fprintf(w, "(%s", filename)
 		if line != nil {
@@ -57,6 +58,7 @@ const (
 
 // Lexes and preprocesses a file, returning its token array.
 func LexFile(filename string, flags int) ([]Token, bool) {
+	debug.SetGCPercent(90)
 	var tokens []Token
 	code, err_str := loadFile(filename)
 	if len(code) <= 0 {
@@ -77,6 +79,7 @@ func LexFile(filename string, flags int) ([]Token, bool) {
 	if flags & LEXFLAG_STRIPCOMMENTS > 0 {
 		tokens = RemoveComments(tokens)
 	}
+	debug.FreeOSMemory()
 	return tokens, true
 }
 

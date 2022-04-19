@@ -3,7 +3,7 @@ package SPTools
 import (
 	"strings"
 	"unicode"
-	//"fmt"
+	"fmt"
 	"os"
 	"unicode/utf8"
 )
@@ -542,7 +542,7 @@ var (
 type Token struct {
 	Lexeme    string
 	Path     *string
-	Line, Col int
+	Line, Col uint32
 	Kind      TokenKind
 }
 
@@ -582,6 +582,19 @@ func (tok Token) IsStorageClass() bool {
 		default:
 			return false
 	}
+}
+
+// returns either the lexeme or operator string.
+func (tok Token) String() string {
+	if tok.Kind >= TKComment && tok.Kind <= TKCharLit {
+		return tok.Lexeme
+	} else {
+		return TokenToStr[tok.Kind]
+	}
+}
+
+func (tok Token) ToString() string {
+	return fmt.Sprintf("%s - line: %d, col: %d | file: '%s'", tok.String(), tok.Line, tok.Col, *tok.Path)
 }
 
 
@@ -740,18 +753,18 @@ func Tokenize(src, filename string) []Token {
 		tokens []Token
 		idx, start int
 	)
-	line, max, runes := 1, len(src), ([]rune)(src)
+	line, max, runes := uint32(1), len(src), ([]rune)(src)
 	for idx < max {
 		if c := runes[idx]; unicode.IsSpace(c) {
 			idx++
 			if c=='\n' {
-				tokens = append(tokens, Token{Lexeme: "\n", Path: &filename, Line: line, Col: idx - start, Kind: TKNewline})
+				tokens = append(tokens, Token{Lexeme: "\n", Path: &filename, Line: line, Col: uint32(idx - start), Kind: TKNewline})
 				line++
 				start = idx
 			}
 		} else if unicode.IsLetter(c) || c=='_' {
 			// handle identifiers & keywords.
-			col, starting := idx - start, idx
+			col, starting := uint32(idx - start), idx
 			for idx < max && isIden(runes[idx]) {
 				idx++
 			}
@@ -763,7 +776,7 @@ func Tokenize(src, filename string) []Token {
 			}
 		} else if c=='/' && idx + 1 < max && runes[idx + 1]=='/' {
 			// single line comment.
-			col, starting, starting_line := idx - start, idx, line
+			col, starting, starting_line := uint32(idx - start), idx, line
 			idx += 2
 			for idx < max && runes[idx] != '\n' {
 				if runes[idx]=='\\' {
@@ -777,7 +790,7 @@ func Tokenize(src, filename string) []Token {
 			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
 		} else if c=='/' && idx + 1 < max && runes[idx + 1]=='*' {
 			// multi-line comment.
-			col, starting, starting_line := idx - start, idx, line
+			col, starting, starting_line := uint32(idx - start), idx, line
 			idx += 2
 			stop := false
 			for idx < max && !stop {
@@ -794,7 +807,7 @@ func Tokenize(src, filename string) []Token {
 			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
 		} else if unicode.IsNumber(c) {
 			// handle numbers.
-			col, starting, starting_line := idx - start, idx, line
+			col, starting, starting_line := uint32(idx - start), idx, line
 			if new_idx, result := lexBinary(runes, idx, max, filename); result {
 				idx = new_idx
 				lexeme := string(runes[starting : idx])
@@ -822,7 +835,7 @@ func Tokenize(src, filename string) []Token {
 				goto errored_return
 			}
 		} else if c=='"' || c=='\'' {
-			col, starting_line, q := idx - start, line, c
+			col, starting_line, q := uint32(idx - start), line, c
 			idx++
 			var b strings.Builder
 			for idx < max && runes[idx] != q {
@@ -952,7 +965,7 @@ func Tokenize(src, filename string) []Token {
 			}
 			tokens = append(tokens, Token{Lexeme: b.String(), Path: &filename, Line: starting_line, Col: col, Kind: kind})
 		} else {
-			col, starting, starting_line := idx - start, idx, line
+			col, starting, starting_line := uint32(idx - start), idx, line
 			oper_size, oper_key, got_match := 0, "", false
 			for key := range Opers {
 				// Match largest operator first.
@@ -978,7 +991,7 @@ func Tokenize(src, filename string) []Token {
 		}
 	}
 errored_return:
-	tokens = append(tokens, Token{Lexeme: "<eof>", Path: &filename, Line: line, Col: idx - start, Kind: TKEoF})
+	tokens = append(tokens, Token{Lexeme: "<eof>", Path: &filename, Line: line, Col: uint32(idx - start), Kind: TKEoF})
 	return tokens
 }
 

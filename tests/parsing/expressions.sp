@@ -1,4 +1,28 @@
+static stock void ReplaceEscapeSeq(char[] str, int size) {
+	char list[][][] = {
+		{ "\t", "\\t" },
+		{ "\n", "\\n" },
+		{ "\r", "\\r" }
+	};
+	
+	for( int i; i < sizeof(list); i++ ) {
+		ReplaceString(str, size, list[i][0], list[i][1]);
+	}
+}
+
+/*
 methodmap foo {
+	public native GlobalForward(const char[] name, ExecType type, ParamType ...);
+
+	public KeyValType GetIntKeyValType(int key) {
+		if( key < 0 ) {
+			return KeyValType_Null;
+		}
+		char key_str[12];
+		IntToString(key, key_str, sizeof(key_str));
+		return this.GetKeyValType(key_str);
+	}
+	
 	property int bar {
 		public get() {
 			return bar_peanuts;
@@ -18,7 +42,7 @@ methodmap foo {
 		}
 	}
 }
-
+*/
 /*
 public Extension __ext_core = {
 	name = "Core",

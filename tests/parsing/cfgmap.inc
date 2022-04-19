@@ -28,12 +28,6 @@
 #endif
 #define _cfgmap_included
 
-#include <adt_array>
-#include <adt_trie>
-#include <adt_stack>
-#include <textparse>
-#include <datapack>
-
 
 enum KeyValType {
 	KeyValType_Null,     /// nil

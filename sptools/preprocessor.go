@@ -10,8 +10,8 @@ import (
 
 
 var (
-	preproc_one  = Token{ Lexeme: "1", Path: nil, Line: -1, Col: -1, Kind: TKIntLit }
-	preproc_zero = Token{ Lexeme: "0", Path: nil, Line: -1, Col: -1, Kind: TKIntLit }
+	preproc_one  = Token{ Lexeme: "1", Path: nil, Line: 0, Col: 0, Kind: TKIntLit }
+	preproc_zero = Token{ Lexeme: "0", Path: nil, Line: 0, Col: 0, Kind: TKIntLit }
 )
 
 
@@ -268,13 +268,13 @@ func evalTerm(tokens []Token, i *int, macros map[string]macro) (int, bool) {
 				return 0, true
 			}
 		case TKIdent:
-			///time.Sleep(500 * time.Millisecond)
+			///time.Sleep(100 * time.Millisecond)
 			///writeMsg(nil, os.Stdout, *t.Path, "log", COLOR_GREEN, &t.Line, &t.Col, "conditional preprocessing macro: '%s'.", t.Lexeme)
 			
 			macro, found := macros[t.Lexeme]
 			if !found {
 				if t.Lexeme == "__LINE__" {
-					return t.Line, true
+					return int(t.Line), true
 				}
 				writeMsg(nil, os.Stdout, *t.Path, "syntax error", COLOR_RED, &t.Line, &t.Col, "undefined symbol '%s'.", t.Lexeme)
 				return 0, false
@@ -439,7 +439,7 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 	num_tokens := len(tokens)
 	for i:=0; i < num_tokens; i++ {
 		t := tokens[i]
-		///time.Sleep(500 * time.Millisecond)
+		///time.Sleep(100 * time.Millisecond)
 		if t.Kind==TKIdent {
 			if macro, found := macros[t.Lexeme]; found {
 				if toks, res := macro.apply(tokens, &i); res {
