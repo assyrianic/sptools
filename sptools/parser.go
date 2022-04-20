@@ -32,8 +32,9 @@ func copyPosToNode(n *node, t Token) {
 
 
 type Parser struct {
-	tokens  []Token
-	idx, Errs int
+	tokens []Token
+	idx      int
+	Errs     uint32
 }
 
 func (parser *Parser) GetToken(offset int) Token {

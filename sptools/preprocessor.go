@@ -10,9 +10,24 @@ import (
 
 
 var (
-	preproc_one  = Token{ Lexeme: "1", Path: nil, Line: 0, Col: 0, Kind: TKIntLit }
-	preproc_zero = Token{ Lexeme: "0", Path: nil, Line: 0, Col: 0, Kind: TKIntLit }
+	PreprocOne  = Token{ Lexeme: "1", Path: nil, Line: 0, Col: 0, Kind: TKIntLit }
+	PreprocZero = Token{ Lexeme: "0", Path: nil, Line: 0, Col: 0, Kind: TKIntLit }
 )
+
+
+type tokenList []Token
+type tokenStream struct {
+	tokens []Token
+	index    int
+}
+
+func (ts tokenStream) get(i int) Token {
+	if l := len(ts.tokens); ts.index + i >= l {
+		return ts.tokens[l-1]
+	} else {
+		return ts.tokens[ts.index + i]
+	}
+}
 
 
 type macro struct {
@@ -22,51 +37,51 @@ type macro struct {
 }
 
 func makeFuncMacro(tokens []Token) (macro, int) {
-	macro := macro{tokens: make([]Token, 0), params: make(map[string]int), funcLike: true}
+	m := macro{tokens: make([]Token, 0), params: make(map[string]int), funcLike: true}
 	i, num_tokens := 0, len(tokens)
 	for ; i < num_tokens && tokens[i].Kind != TKRParen; i++ {
 		t := tokens[i]
-		if len(macro.params) > 0 {
+		if len(m.params) > 0 {
 			if t.Kind==TKComma {
 				// skip past ','
 				i++
 				t = tokens[i]
 			} else {
 				writeMsg(nil, os.Stdout, *t.Path, "syntax error", COLOR_RED, &t.Line, &t.Col, "expected ',' but got '%s' in #define macro.", t.Lexeme)
-				return macro, 0
+				return m, 0
 			}
 		}
 		
 		if t.Kind==TKMod && i + 1 < num_tokens && tokens[i+1].Kind==TKIntLit {
 			i++
-			macro.params["%" + tokens[i].Lexeme] = len(macro.params)
+			m.params["%" + tokens[i].Lexeme] = len(m.params)
 		} else {
 			writeMsg(nil, os.Stdout, *t.Path, "syntax error", COLOR_RED, &t.Line, &t.Col, "unexpected param '%s' in #define macro. Params must be %%<integer literal> (i.e. %%1, %%2).", t.Lexeme)
-			return macro, 0
+			return m, 0
 		}
 	}
 	i++
 	for ; i < num_tokens && tokens[i].Kind != TKNewline; i++ {
-		macro.tokens = append(macro.tokens, tokens[i])
+		m.tokens = append(m.tokens, tokens[i])
 	}
 	i++
-	return macro, i
+	return m, i
 }
 
 func makeObjMacro(tokens []Token) (macro, int) {
-	macro := macro{tokens: make([]Token, 0), params: nil, funcLike: false}
+	m := macro{tokens: make([]Token, 0), params: nil, funcLike: false}
 	i := 0
 	for ; i < len(tokens) && tokens[i].Kind != TKNewline; i++ {
-		macro.tokens = append(macro.tokens, tokens[i])
+		m.tokens = append(m.tokens, tokens[i])
 	}
 	i++
-	return macro, i
+	return m, i
 }
 
-func (macro macro) apply(tokens []Token, i *int) ([]Token, bool) {
+func (m macro) apply(tokens []Token, i *int) ([]Token, bool) {
 	num_tokens := len(tokens)
 	var output []Token
-	if macro.funcLike {
+	if m.funcLike {
 		if *i+1 < num_tokens && tokens[*i+1].Kind != TKLParen {
 			e := tokens[*i+1]
 			writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "expected ( where function-like macro but have '%s'.", e.Lexeme)
@@ -82,25 +97,25 @@ func (macro macro) apply(tokens []Token, i *int) ([]Token, bool) {
 			num_arg++
 			idx++
 		}
-		if len(macro.params) != len(args) {
+		if len(m.params) != len(args) {
 			e := tokens[*i+1]
-			writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "function macro args given (%d) do not match parameters (%d).", len(args), len(macro.params))
+			writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "function macro args given (%d) do not match parameters (%d).", len(args), len(m.params))
 			return tokens, false
 		}
 		*i = idx
-		for n:=0; n < len(macro.tokens); n++ {
-			x := macro.tokens[n]
+		for n:=0; n < len(m.tokens); n++ {
+			x := m.tokens[n]
 			if x.Kind==TKIdent && x.Lexeme=="__LINE__" {
 				line_str := fmt.Sprintf("%d", x.Line)
 				output = append(output, Token{Lexeme: line_str, Path: x.Path, Line: x.Line, Col: x.Col, Kind: TKIntLit})
-			} else if x.Kind==TKMod && n + 1 < len(macro.tokens) && macro.tokens[n+1].Kind==TKIntLit {
-				if param, found := macro.params["%" + macro.tokens[n+1].Lexeme]; found {
+			} else if x.Kind==TKMod && n + 1 < len(m.tokens) && m.tokens[n+1].Kind==TKIntLit {
+				if param, found := m.params["%" + m.tokens[n+1].Lexeme]; found {
 					output = append(output, args[param])
 				}
 				n++
-			} else if x.Kind==TKHash && n + 1 < len(macro.tokens) && macro.tokens[n+1].Kind==TKMod && n + 2 < len(macro.tokens) && macro.tokens[n+2].Kind==TKIntLit {
+			} else if x.Kind==TKHash && n + 1 < len(m.tokens) && m.tokens[n+1].Kind==TKMod && n + 2 < len(m.tokens) && m.tokens[n+2].Kind==TKIntLit {
 				// stringify
-				if param, found := macro.params["%" + macro.tokens[n+2].Lexeme]; found {
+				if param, found := m.params["%" + m.tokens[n+2].Lexeme]; found {
 					stringified := args[param]
 					stringified.Kind = TKStrLit
 					output = append(output, stringified)
@@ -112,7 +127,7 @@ func (macro macro) apply(tokens []Token, i *int) ([]Token, bool) {
 		}
 	} else {
 		// object-like macro.
-		for _, x := range macro.tokens {
+		for _, x := range m.tokens {
 			if x.Kind==TKIdent && x.Lexeme=="__LINE__" {
 				line_str := fmt.Sprintf("%d", x.Line)
 				output = append(output, Token{Lexeme: line_str, Path: x.Path, Line: x.Line, Col: x.Col, Kind: TKIntLit})
@@ -292,7 +307,7 @@ func evalTerm(tokens []Token, i *int, macros map[string]macro) (int, bool) {
 			///time.Sleep(100 * time.Millisecond)
 			///writeMsg(nil, os.Stdout, *t.Path, "log", COLOR_GREEN, &t.Line, &t.Col, "conditional preprocessing macro: '%s'.", t.Lexeme)
 			
-			macro, found := macros[t.Lexeme]
+			m, found := macros[t.Lexeme]
 			if !found {
 				if t.Lexeme == "__LINE__" {
 					return int(t.Line), true
@@ -302,12 +317,12 @@ func evalTerm(tokens []Token, i *int, macros map[string]macro) (int, bool) {
 			}
 			
 			// if a macro has no tokens at all, assign it a zero token.
-			if len(macro.tokens) <= 0 {
-				macro.tokens = []Token{preproc_zero}
+			if len(m.tokens) <= 0 {
+				m.tokens = []Token{PreprocZero}
 			}
 			
 			saved := *i
-			expanded, good := macro.apply(tokens, i)
+			expanded, good := m.apply(tokens, i)
 			
 			// skips past ( or ending ) if macro function or skip name if macro object.
 			*i++
@@ -450,10 +465,37 @@ func goToNextCondIncl(tokens []Token, i *int) bool {
 
 func Preprocess(tokens []Token) ([]Token, bool) {
 	macros := make(map[string]macro)
-	macros["__SPTOOLS__"] = macro{tokens: []Token{preproc_one}, params: nil, funcLike: false}
+	macros["__SPTOOLS__"] = macro{tokens: []Token{PreprocOne}, params: nil, funcLike: false}
 	var ifStack CondInclStack
 	return preprocess(tokens, ifStack, macros)
 }
+
+/*
+func preprocess_new(tokens []Token, ifStack CondInclStack, macros map[string]macro) ([]Token, bool) {
+	var output []Token
+	tokstream := tokenStream{ tokens: tokens, index:0 }
+	for t := tokstream.get(0); t.Kind != TKEoF; t = tokstream.get(0) {
+		///time.Sleep(100 * time.Millisecond)
+		if t.Kind==TKIdent {
+			if m, found := macros[t.Lexeme]; found {
+				if toks, res := m.apply(tokstream); res {
+					toks, _ = preprocess(toks, ifStack, macros)
+					output = append(output, toks...)
+				}
+			} else {
+				output = append(output, t)
+			}
+			continue
+		}
+		
+		if t.Kind==TKHash {
+			switch directive := tokstream.get(1); directive.Lexeme {
+				case 
+			}
+		}
+	}
+}
+*/
 
 func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) ([]Token, bool) {
 	var output []Token
@@ -462,8 +504,8 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 		t := tokens[i]
 		///time.Sleep(100 * time.Millisecond)
 		if t.Kind==TKIdent {
-			if macro, found := macros[t.Lexeme]; found {
-				if toks, res := macro.apply(tokens, &i); res {
+			if m, found := macros[t.Lexeme]; found {
+				if toks, res := m.apply(tokens, &i); res {
 					toks, _ = preprocess(toks, ifStack, macros)
 					output = append(output, toks...)
 				}
@@ -493,14 +535,14 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 							if i + 3 < num_tokens {
 								if tokens[i+3].Kind==TKLParen {
 									// function-like macro.
-									if macro, offs := makeFuncMacro(tokens[i+4 : len(tokens)]); offs > 0 {
-										macros[t2.Lexeme] = macro
+									if m, offs := makeFuncMacro(tokens[i+4 : len(tokens)]); offs > 0 {
+										macros[t2.Lexeme] = m
 										i += offs + 2
 									}
 								} else {
 									// object-like macro.
-									macro, offs := makeObjMacro(tokens[i+3 : len(tokens)])
-									macros[t2.Lexeme] = macro
+									m, offs := makeObjMacro(tokens[i+3 : len(tokens)])
+									macros[t2.Lexeme] = m
 									i += offs + 1
 								}
 							}

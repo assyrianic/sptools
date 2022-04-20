@@ -598,111 +598,130 @@ func (tok Token) ToString() string {
 }
 
 
-// TODO: clean up tokenizer code.
-/*
 type Scanner struct {
-	Runes []rune
-	Filename string
-	Idx, Line, LineStart int
-	Num_msgs int
+	runes       []rune
+	filename      string
+	idx, start    int
+	line, numMsgs uint32
 }
 
-func (s *Scanner) Read(i int) rune {
-	if l := len(s.Runes); s.Idx + i >= l {
+func (s Scanner) Read(i int) rune {
+	if l := len(s.runes); s.idx + i >= l {
 		return 0
 	} else {
-		return s.Runes[s.Idx + i]
+		return s.runes[s.idx + i]
 	}
 }
-*/
+
+func (s *Scanner) Advance(i int) {
+	s.idx += i
+}
+
+func (s Scanner) NumMsgs() uint32 {
+	return s.numMsgs
+}
+
+func (s Scanner) Line() uint32 {
+	return s.line
+}
+
+func (s Scanner) Col() uint32 {
+	return uint32(s.idx - s.start)
+}
 
 
-func lexBinary(runes []rune, idx, max int, filename string) (int, bool) {
-	if idx >= max || runes[idx] != '0' {
-		return idx, false
-	} else if idx + 1 < max && (runes[idx+1] != 'b' && runes[idx+1] != 'B') {
-		return idx, false
+func (s *Scanner) LexBinary() (string, bool) {
+	if s.Read(0) != '0' || (s.Read(1) != 'b' && s.Read(1) != 'B') {
+		return "", false
 	}
-	
-	idx += 2
-	for idx < max && (isAlphaNum(runes[idx]) || runes[idx]==DigitSep) {
-		switch runes[idx] {
+	saved := s.idx
+	s.idx += 2
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep; chr = s.Read(0) {
+		switch chr {
 			case '0', '1', DigitSep:
-				idx++
+				s.idx++
 			default:
-				writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "bad digit %c in binary literal", runes[idx])
-				return idx, false
+				col := s.Col()
+				s.idx = saved
+				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in binary literal", chr)
+				return "", false
 		}
 	}
-	return idx, true
+	return string(s.runes[saved : s.idx]), true
 }
 
-func lexHex(runes []rune, idx, max int, filename string) (int, bool) {
-	if max <= idx || runes[idx] != '0' {
-		return idx, false
-	} else if idx + 1 < max && (runes[idx + 1] != 'x' && runes[idx + 1] != 'X') {
-		return idx, false
+func (s *Scanner) LexHex() (string, bool) {
+	if s.Read(0) != '0' || (s.Read(1) != 'x' && s.Read(1) != 'X') {
+		return "", false
 	}
-	idx += 2
-	for idx < max && (isAlphaNum(runes[idx]) || runes[idx]==DigitSep) {
-		switch runes[idx] {
+	saved := s.idx
+	s.idx += 2
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep; chr = s.Read(0) {
+		switch chr {
 			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', DigitSep:
 				fallthrough
 			case 'a', 'b', 'c', 'd', 'e', 'f', 'A', 'B', 'C', 'D', 'E', 'F':
-				idx++
+				s.idx++
 			default:
-				writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "bad digit %c in hex literal", runes[idx])
-				return idx, false
+				col := s.Col()
+				s.idx = saved
+				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in hex literal", chr)
+				return "", false
 		}
 	}
-	return idx, true
+	return string(s.runes[saved : s.idx]), true
 }
 
-func lexOctal(runes []rune, idx, max int, filename string) (int, bool) {
-	if max <= idx || runes[idx] != '0' {
-		return idx, false
-	} else if idx + 1 < max && (runes[idx + 1] != 'o' && runes[idx + 1] != 'O') {
-		return idx, false
+func (s *Scanner) LexOctal() (string, bool) {
+	if s.Read(0) != '0' || (s.Read(1) != 'o' && s.Read(1) != 'O') {
+		return "", false
 	}
-	idx += 2
-	for idx < max && (isAlphaNum(runes[idx]) || runes[idx]==DigitSep) {
-		switch runes[idx] {
+	saved := s.idx
+	s.idx += 2
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep; chr = s.Read(0) {
+		switch chr {
 			case '0', '1', '2', '3', '4', '5', '6', '7', DigitSep:
-				idx++
+				s.idx++
 			default:
-				writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "bad digit %c in octal literal", runes[idx])
-				return idx, false
+				col := s.Col()
+				s.idx = saved
+				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in octal literal", chr)
+				return "", false
 		}
 	}
-	return idx, true
+	return string(s.runes[saved : s.idx]), true
 }
 
-func lexDecimal(runes []rune, idx, max int, filename string) (int, bool, bool) {
-	start := idx
-	if max <= idx {
-		return idx, false, false
+func (s *Scanner) LexDecimal() (string, bool, bool) {
+	if s.Read(0)==0 {
+		return "", false, false
 	}
-	for idx < max && (isAlphaNum(runes[idx]) || runes[idx]==DigitSep || runes[idx]=='.') {
-		switch runes[idx] {
+	start := s.idx
+	for chr := s.Read(0); (isAlphaNum(chr) || chr==DigitSep || chr=='.'); chr = s.Read(0) {
+		switch chr {
 			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', DigitSep:
-				idx++
+				s.idx++
 			case '.':
-				return lexFloat(runes, start, max, filename)
+				return s.LexFloat()
 			default:
-				writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "bad digit %c in decimal literal", runes[idx])
-				return idx, false, false
+				col := s.Col()
+				s.idx = start
+				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in decimal literal", chr)
+				return "", false, false
 		}
 	}
-	return idx, true, false
+	return string(s.runes[start : s.idx]), true, false
 }
 
-func lexFloat(runes []rune, idx, max int, filename string) (int, bool, bool) {
-	if max <= idx {
-		return idx, false, true
+func (s *Scanner) LexFloat() (string, bool, bool) {
+	if s.Read(0)==0 {
+		return "", false, true
 	}
+	
+	saved := s.idx
 	var got_num, got_E, num_after_E, got_math bool
-	for idx < max && (isAlphaNum(runes[idx]) || runes[idx]==DigitSep || runes[idx]=='.' || runes[idx]=='+' || runes[idx]=='-') {
-		switch runes[idx] {
+	for chr := s.Read(0); (isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='+' || chr=='-'); chr = s.Read(0) {
+		switch chr {
 			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 				if !got_num {
 					got_num = true
@@ -710,176 +729,182 @@ func lexFloat(runes []rune, idx, max int, filename string) (int, bool, bool) {
 				if got_E && !num_after_E {
 					num_after_E = true
 				}
-				idx++
+				s.idx++
 			case DigitSep:
-				idx++
+				s.idx++
 			case '.':
 				if !got_num {
-					writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "'.' in float literal before numbers.")
-					return idx, false, true
+					col := s.Col()
+					s.idx = saved
+					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "'.' in float literal before numbers.")
+					return "", false, true
 				}
-				idx++
+				s.idx++
 			case 'e':
 				if got_E {
-					writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "too many Es in float.")
-					return idx, false, true
+					col := s.Col()
+					s.idx = saved
+					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "too many Es in float.")
+					return "", false, true
 				}
 				got_E = true
-				idx++
+				s.idx++
 			case '+', '-':
 				if num_after_E || got_math {
-					return idx, true, true
-				} else if got_E && idx+1 < max && !unicode.IsDigit(runes[idx+1]) {
-					writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "missing numbers after +/- in E exponent.")
-					return idx, false, true
+					return "", true, true
+				} else if got_E && !unicode.IsDigit(s.Read(1)) {
+					col := s.Col()
+					s.idx = saved
+					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "missing numbers after +/- in E exponent.")
+					return "", false, true
 				}
 				got_math = true
-				idx++
+				s.idx++
 			default:
-				writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "bad digit %c in float literal.", runes[idx])
-				return idx, false, true
+				col := s.Col()
+				s.idx = saved
+				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in float literal.", chr)
+				return "", false, true
 		}
 	}
 	if got_E && !num_after_E {
-		writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, nil, nil, "exponent E is missing numbers in float literal.")
-		return idx, false, true
+		col := s.Col()
+		s.idx = saved
+		writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "exponent E is missing numbers in float literal.")
+		return "", false, true
 	}
-	return idx, true, true
+	return string(s.runes[saved : s.idx]), true, true
 }
 
 
 func Tokenize(src, filename string) []Token {
-	var (
-		tokens []Token
-		idx, start int
-	)
-	line, max, runes := uint32(1), len(src), ([]rune)(src)
-	for idx < max {
-		if c := runes[idx]; unicode.IsSpace(c) {
-			idx++
+	var tokens []Token
+	s := Scanner{
+		runes: ([]rune)(src),
+		filename: filename,
+		idx: 0,
+		start: 0,
+		line: 1,
+		numMsgs: 0,
+	}
+	for s.Read(0) > 0 {
+		if c := s.Read(0); unicode.IsSpace(c) {
+			s.idx++
 			if c=='\n' {
-				tokens = append(tokens, Token{Lexeme: "\n", Path: &filename, Line: line, Col: uint32(idx - start), Kind: TKNewline})
-				line++
-				start = idx
+				tokens = append(tokens, Token{Lexeme: "\n", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKNewline})
+				s.line++
+				s.start = s.idx
 			}
 		} else if unicode.IsLetter(c) || c=='_' {
 			// handle identifiers & keywords.
-			col, starting := uint32(idx - start), idx
-			for idx < max && isIden(runes[idx]) {
-				idx++
+			col, starting := s.Col(), s.idx
+			for isIden(s.Read(0)) {
+				s.idx++
 			}
-			lexeme := string(runes[starting : idx])
+			lexeme := string(s.runes[starting : s.idx])
 			if tkind, found := Keywords[lexeme]; found {
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: line, Col: col, Kind: tkind})
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: col, Kind: tkind})
 			} else {
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: line, Col: col, Kind: TKIdent})
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: col, Kind: TKIdent})
 			}
-		} else if c=='/' && idx + 1 < max && runes[idx + 1]=='/' {
+		} else if c=='/' && s.Read(1)=='/' {
 			// single line comment.
-			col, starting, starting_line := uint32(idx - start), idx, line
-			idx += 2
-			for idx < max && runes[idx] != '\n' {
-				if runes[idx]=='\\' {
-					line++
-					idx++
-					start = idx
+			col, starting, starting_line := s.Col(), s.idx, s.line
+			s.idx += 2
+			for s.Read(0) != '\n' {
+				if s.Read(0)=='\\' {
+					s.line++
+					s.idx++
+					s.start = s.idx
 				}
-				idx++
+				s.idx++
 			}
-			lexeme := string(runes[starting : idx])
+			lexeme := string(s.runes[starting : s.idx])
 			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
-		} else if c=='/' && idx + 1 < max && runes[idx + 1]=='*' {
+		} else if c=='/' && s.Read(1)=='*' {
 			// multi-line comment.
-			col, starting, starting_line := uint32(idx - start), idx, line
-			idx += 2
+			col, starting, starting_line := s.Col(), s.idx, s.line
+			s.idx += 2
 			stop := false
-			for idx < max && !stop {
-				if runes[idx]=='\n' {
-					line++
-					start = idx
-				} else if runes[idx]=='*' && idx + 1 < max && runes[idx + 1]=='/' {
-					idx++
+			for s.Read(0) != 0 && !stop {
+				if s.Read(0)=='\n' {
+					s.line++
+					s.start = s.idx
+				} else if s.Read(0)=='*' && s.Read(1)=='/' {
+					s.idx++
 					stop = true
 				}
-				idx++
+				s.idx++
 			}
-			lexeme := string(runes[starting : idx])
+			lexeme := string(s.runes[starting : s.idx])
 			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
 		} else if unicode.IsNumber(c) {
 			// handle numbers.
-			col, starting, starting_line := uint32(idx - start), idx, line
-			if new_idx, result := lexBinary(runes, idx, max, filename); result {
-				idx = new_idx
-				lexeme := string(runes[starting : idx])
+			col, starting_line := s.Col(), s.line
+			if lexeme, result := s.LexBinary(); result {
 				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKIntLit})
-			} else if new_idx, result = lexHex(runes, idx, max, filename); result {
-				idx = new_idx
-				lexeme := string(runes[starting : idx])
+			} else if lexeme, result = s.LexHex(); result {
 				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKIntLit})
-			} else if new_idx, result = lexOctal(runes, idx, max, filename); result {
-				idx = new_idx
-				lexeme := string(runes[starting : idx])
+			} else if lexeme, result = s.LexOctal(); result {
 				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKIntLit})
-			} else if nidx, res, is_float := lexDecimal(runes, idx, max, filename); res {
-				idx = nidx
+			} else if nlexeme, res, is_float := s.LexDecimal(); res {
 				var kind TokenKind
 				if is_float {
 					kind = TKFloatLit
 				} else {
 					kind = TKIntLit
 				}
-				lexeme := string(runes[starting : idx])
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: kind})
+				tokens = append(tokens, Token{Lexeme: nlexeme, Path: &filename, Line: starting_line, Col: col, Kind: kind})
 			} else {
-				writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, &line, &col, "failed to tokenize number.")
+				writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "failed to tokenize number.")
 				goto errored_return
 			}
 		} else if c=='"' || c=='\'' {
-			col, starting_line, q := uint32(idx - start), line, c
-			idx++
+			col, starting_line, q := s.Col(), s.line, c
+			s.idx++
 			var b strings.Builder
-			for idx < max && runes[idx] != q {
-				if runes[idx]=='\\' {
-					idx++
-					switch esc := runes[idx]; esc {
+			for s.Read(0) != q {
+				if s.Read(0)=='\\' {
+					s.idx++
+					switch esc := s.Read(0); esc {
 						case '\n':
-							idx++
+							s.idx++
 						case '\'', '"':
 							b.WriteRune(esc)
-							idx++
+							s.idx++
 						case '\\':
 							b.WriteRune('\\')
-							idx++
+							s.idx++
 						case 'a':
 							b.WriteRune('\a')
-							idx++
+							s.idx++
 						case 'r':
 							b.WriteRune('\r')
-							idx++
+							s.idx++
 						case 'b':
 							b.WriteRune('\b')
-							idx++
+							s.idx++
 						case 't':
 							b.WriteRune('\t')
-							idx++
+							s.idx++
 						case 'v':
 							b.WriteRune('\v')
-							idx++
+							s.idx++
 						case 'n':
 							b.WriteRune('\n')
-							idx++
+							s.idx++
 						case 'f':
 							b.WriteRune('\f')
-							idx++
+							s.idx++
 						case 'X', 'x':
-							idx++
+							s.idx++
 							value := func() rune {
-								if idx < max && !isHex(runes[idx]) {
+								if !isHex(s.Read(0)) {
 									return -1
 								}
 								var r rune
-								for idx < max {
-									switch chr := runes[idx]; chr {
+								for s.Read(0) > 0 {
+									switch chr := s.Read(0); chr {
 										case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 											r = (r << 4) | (chr - '0')
 										case 'A', 'B', 'C', 'D', 'E', 'F':
@@ -887,18 +912,20 @@ func Tokenize(src, filename string) []Token {
 										case 'a', 'b', 'c', 'd', 'e', 'f':
 											r = (r << 4) | (chr - 'A' + 10)
 										case ';':
-											idx++
+											s.idx++
 											return r
 										default:
 											return r
 									}
-									idx++
+									s.idx++
 								}
 								return r
 							}()
-							b.WriteRune(value)
+							if utf8.ValidRune(value) {
+								b.WriteRune(value)
+							}
 						case 'u', 'U':
-							idx++
+							s.idx++
 							value := func(is_u32 bool) rune {
 								var r rune
 								var encoding_size int
@@ -907,8 +934,8 @@ func Tokenize(src, filename string) []Token {
 								} else {
 									encoding_size = 4
 								}
-								for n:=0; idx < max && n < encoding_size; n++ {
-									switch chr := runes[idx]; chr {
+								for n:=0; s.Read(0) > 0 && n < encoding_size; n++ {
+									switch chr := s.Read(0); chr {
 										case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 											r = (r << 4) | (chr - '0')
 										case 'A', 'B', 'C', 'D', 'E', 'F':
@@ -918,45 +945,43 @@ func Tokenize(src, filename string) []Token {
 										default:
 											return r
 									}
-									idx++
-								}
-								if !utf8.ValidRune(r) {
-									return -1
+									s.idx++
 								}
 								return r
 							}(esc=='U')
-							b.WriteRune(value)
+							if utf8.ValidRune(value) {
+								b.WriteRune(value)
+							}
 						case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 							value := func() rune {
-								if idx < max && !isOctal(runes[idx]) {
+								if !isOctal(s.Read(0)) {
 									return -1
 								}
 								var r rune
-								for idx < max {
-									switch chr := runes[idx]; chr {
+								for s.Read(0) > 0 {
+									switch chr := s.Read(0); chr {
 										case '0', '1', '2', '3', '4', '5', '6', '7':
 											r = (r << 3) | (chr - '0')
 										case ';':
-											idx++
+											s.idx++
 											return r
 										default:
 											return r
 									}
-									idx++
-								}
-								if !utf8.ValidRune(r) {
-									return -1
+									s.idx++
 								}
 								return r
 							}()
-							b.WriteRune(value)
+							if utf8.ValidRune(value) {
+								b.WriteRune(value)
+							}
 					}
 				} else {
-					b.WriteRune(runes[idx])
-					idx++
+					b.WriteRune(s.Read(0))
+					s.idx++
 				}
 			}
-			idx++
+			s.idx++
 			var kind TokenKind
 			if q=='"' {
 				kind = TKStrLit
@@ -965,33 +990,33 @@ func Tokenize(src, filename string) []Token {
 			}
 			tokens = append(tokens, Token{Lexeme: b.String(), Path: &filename, Line: starting_line, Col: col, Kind: kind})
 		} else {
-			col, starting, starting_line := uint32(idx - start), idx, line
+			col, starting, starting_line := s.Col(), s.idx, s.line
 			oper_size, oper_key, got_match := 0, "", false
 			for key := range Opers {
 				// Match largest operator first.
 				keylen := len(key)
-				if idx + keylen > max {
+				if s.Read(keylen) <= 0 {
 					continue
 				}
 				
-				if string(runes[starting : idx+keylen])==key && oper_size < keylen {
+				if string(s.runes[starting : s.idx + keylen])==key && oper_size < keylen {
 					oper_size, oper_key, got_match = keylen, key, true
 				}
 			}
 			
 			if got_match {
-				idx += len(oper_key)
-				lexeme, kind := string(runes[starting : idx]), Opers[oper_key]
+				s.idx += len(oper_key)
+				lexeme, kind := string(s.runes[starting : s.idx]), Opers[oper_key]
 				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: kind})
 				continue
 			} else {
-				writeMsg(nil, os.Stdout, filename, "lex error", COLOR_RED, &line, &col, "unknown operator: '%c'.", runes[starting])
+				writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "unknown operator: '%c'.", s.runes[starting])
 				goto errored_return
 			}
 		}
 	}
 errored_return:
-	tokens = append(tokens, Token{Lexeme: "<eof>", Path: &filename, Line: line, Col: uint32(idx - start), Kind: TKEoF})
+	tokens = append(tokens, Token{Lexeme: "<eof>", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKEoF})
 	return tokens
 }
 
