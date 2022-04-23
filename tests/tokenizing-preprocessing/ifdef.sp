@@ -10,12 +10,14 @@ start
 	#endif
 #elseif TEST2 == 20
 	bar
-	#include "func_macro.sp"
-	#if 1==1
-		MAXPLAYERS
-	#endif
 #else
 	bazz
 #endif
 
 end
+
+#if defined DEBUG || defined _DEBUG
+	return true;
+#else
+	return false;
+#endif

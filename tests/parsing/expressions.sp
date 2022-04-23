@@ -1,3 +1,12 @@
+stock bool FF2_Debug(){
+#if defined DEBUG || defined _DEBUG
+	return true;
+#else
+	return false;
+#endif
+}
+
+///*
 static stock void ReplaceEscapeSeq(char[] str, int size) {
 	char list[][][] = {
 		{ "\t", "\\t" },
@@ -10,10 +19,10 @@ static stock void ReplaceEscapeSeq(char[] str, int size) {
 	}
 }
 
-/*
+
 methodmap foo {
 	public native GlobalForward(const char[] name, ExecType type, ParamType ...);
-
+	
 	public KeyValType GetIntKeyValType(int key) {
 		if( key < 0 ) {
 			return KeyValType_Null;
@@ -42,8 +51,8 @@ methodmap foo {
 		}
 	}
 }
-*/
-/*
+
+
 public Extension __ext_core = {
 	name = "Core",
 	file = "core",
@@ -194,4 +203,4 @@ enum struct Donor {
 		}
 	}
 };
-*/
+//*/

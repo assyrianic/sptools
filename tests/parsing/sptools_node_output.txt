@@ -1,0 +1,268 @@
+Plugin File
+--Var Declaration Type
+----Type Specification
+------Typed Expr - Kind: "int"
+----Type Specification Dims:: 0
+----Type Specification Is Reference:: false
+--Var Declaration Names
+----Ident: 'TestNumber'
+--Var Declaration Array Dims
+--Var Declaration Inits
+----Basic Lit :: Value: "0" - Kind: "int literal"
+--Var Declaration Flags:: static
+--Var Declaration Type
+----Type Specification
+------Typed Expr - Kind: "char"
+----Type Specification Dims:: 0
+----Type Specification Is Reference:: false
+--Var Declaration Names
+----Ident: 'TestContext'
+--Var Declaration Array Dims
+----Basic Lit :: Value: "255" - Kind: "int literal"
+--Var Declaration Inits
+----nil Node
+--Var Declaration Flags:: static
+--Func Declaration Type
+----Type Specification
+------Typed Expr - Kind: "void"
+----Type Specification Dims:: 0
+----Type Specification Is Reference:: false
+--Func Declaration Name
+----Ident: 'SetTestContext'
+--Func Declaration Flags:: stock
+--Func Declaration Params
+----Var Declaration Type
+------Type Specification
+--------Typed Expr - Kind: "char"
+------Type Specification Dims:: 1
+------Type Specification Is Reference:: true
+----Var Declaration Names
+------Ident: 'context'
+----Var Declaration Array Dims
+----Var Declaration Inits
+------nil Node
+----Var Declaration Flags:: const
+--Func Declaration Body
+----Block Statement
+------Expr Statement
+--------Call Expr
+----------Ident: 'strcopy'
+--------Call Expr Arg List
+----------Ident: 'TestContext'
+----------Unary Expr Kind: "sizeof", Post: 'false'
+------------Ident: 'TestContext'
+----------Ident: 'context'
+--Func Declaration Type
+----Type Specification
+------Typed Expr - Kind: "void"
+----Type Specification Dims:: 0
+----Type Specification Is Reference:: false
+--Func Declaration Name
+----Ident: 'AssertEq'
+--Func Declaration Flags:: stock
+--Func Declaration Params
+----Var Declaration Type
+------Type Specification
+--------Typed Expr - Kind: "char"
+------Type Specification Dims:: 1
+------Type Specification Is Reference:: true
+----Var Declaration Names
+------Ident: 'text'
+----Var Declaration Array Dims
+----Var Declaration Inits
+------nil Node
+----Var Declaration Flags:: const
+----Var Declaration Type
+------Type Specification
+--------Typed Expr - Kind: "int"
+------Type Specification Dims:: 0
+------Type Specification Is Reference:: false
+----Var Declaration Names
+------Ident: 'cell1'
+----Var Declaration Array Dims
+----Var Declaration Inits
+------nil Node
+----Var Declaration Flags:: 
+----Var Declaration Type
+------Type Specification
+--------Typed Expr - Kind: "int"
+------Type Specification Dims:: 0
+------Type Specification Is Reference:: false
+----Var Declaration Names
+------Ident: 'cell2'
+----Var Declaration Array Dims
+----Var Declaration Inits
+------nil Node
+----Var Declaration Flags:: 
+--Func Declaration Body
+----Block Statement
+------Expr Statement
+--------Unary Expr Kind: "++", Post: 'true'
+----------Ident: 'TestNumber'
+------If Statement
+--------Binary Expr - Kind: "=="
+----------Ident: 'cell1'
+----------Ident: 'cell2'
+--------Block Statement
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'PrintToServer'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "[%d] %s: %s == %d OK" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'TestContext'
+--------------Ident: 'text'
+--------------Ident: 'cell2'
+------If Statement :: Else
+--------Block Statement
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'PrintToServer'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "[%d] %s FAIL: %s should be %d, got %d" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'TestContext'
+--------------Ident: 'text'
+--------------Ident: 'cell2'
+--------------Ident: 'cell1'
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'ThrowError'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "test %d (%s in %s) failed" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'text'
+--------------Ident: 'TestContext'
+--Func Declaration Type
+----Type Specification
+------Typed Expr - Kind: "void"
+----Type Specification Dims:: 0
+----Type Specification Is Reference:: false
+--Func Declaration Name
+----Ident: 'AssertFalse'
+--Func Declaration Flags:: stock
+--Func Declaration Params
+----Var Declaration Type
+------Type Specification
+--------Typed Expr - Kind: "char"
+------Type Specification Dims:: 1
+------Type Specification Is Reference:: true
+----Var Declaration Names
+------Ident: 'text'
+----Var Declaration Array Dims
+----Var Declaration Inits
+------nil Node
+----Var Declaration Flags:: const
+----Var Declaration Type
+------Type Specification
+--------Typed Expr - Kind: "bool"
+------Type Specification Dims:: 0
+------Type Specification Is Reference:: false
+----Var Declaration Names
+------Ident: 'value'
+----Var Declaration Array Dims
+----Var Declaration Inits
+------nil Node
+----Var Declaration Flags:: 
+--Func Declaration Body
+----Block Statement
+------Expr Statement
+--------Unary Expr Kind: "++", Post: 'true'
+----------Ident: 'TestNumber'
+------If Statement
+--------Unary Expr Kind: "!", Post: 'false'
+----------Ident: 'value'
+--------Block Statement
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'PrintToServer'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "[%d] %s: %s == false OK" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'TestContext'
+--------------Ident: 'text'
+--------------Ident: 'value'
+------If Statement :: Else
+--------Block Statement
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'PrintToServer'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "[%d] %s FAIL: %s should be false, got true" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'TestContext'
+--------------Ident: 'text'
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'ThrowError'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "test %d (%s in %s) failed" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'text'
+--------------Ident: 'TestContext'
+--Func Declaration Type
+----Type Specification
+------Typed Expr - Kind: "void"
+----Type Specification Dims:: 0
+----Type Specification Is Reference:: false
+--Func Declaration Name
+----Ident: 'AssertTrue'
+--Func Declaration Flags:: stock
+--Func Declaration Params
+----Var Declaration Type
+------Type Specification
+--------Typed Expr - Kind: "char"
+------Type Specification Dims:: 1
+------Type Specification Is Reference:: true
+----Var Declaration Names
+------Ident: 'text'
+----Var Declaration Array Dims
+----Var Declaration Inits
+------nil Node
+----Var Declaration Flags:: const
+----Var Declaration Type
+------Type Specification
+--------Typed Expr - Kind: "bool"
+------Type Specification Dims:: 0
+------Type Specification Is Reference:: false
+----Var Declaration Names
+------Ident: 'value'
+----Var Declaration Array Dims
+----Var Declaration Inits
+------nil Node
+----Var Declaration Flags:: 
+--Func Declaration Body
+----Block Statement
+------Expr Statement
+--------Unary Expr Kind: "++", Post: 'true'
+----------Ident: 'TestNumber'
+------If Statement
+--------Ident: 'value'
+--------Block Statement
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'PrintToServer'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "[%d] %s: %s == true OK" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'TestContext'
+--------------Ident: 'text'
+--------------Ident: 'value'
+------If Statement :: Else
+--------Block Statement
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'PrintToServer'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "[%d] %s FAIL: %s should be true, got false" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'TestContext'
+--------------Ident: 'text'
+----------Expr Statement
+------------Call Expr
+--------------Ident: 'ThrowError'
+------------Call Expr Arg List
+--------------Basic Lit :: Value: "test %d (%s in %s) failed" - Kind: "string literal"
+--------------Ident: 'TestNumber'
+--------------Ident: 'text'
+--------------Ident: 'TestContext'

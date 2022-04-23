@@ -1,3 +1,3 @@
 #define GAME_MUSIC    "sound/bgm.mp3"
 
-PlaySong(GAME_MUSIC);
+do PlaySong(GAME_MUSIC);

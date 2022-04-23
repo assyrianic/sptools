@@ -155,6 +155,9 @@ func (parser *Parser) TopDecl() Node {
 			plugin.Decls = append(plugin.Decls, type_decl)
 		}
 	}
+	if parser.Errs==0 {
+		writeMsg(nil, os.Stdout, "", "sptools", COLOR_GREEN, nil, nil, "Parsing completed without errors.")
+	}
 	return plugin
 }
 

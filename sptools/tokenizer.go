@@ -645,62 +645,77 @@ func (s *Scanner) LexBinary() (string, bool) {
 	if s.Read(0) != '0' || (s.Read(1) != 'b' && s.Read(1) != 'B') {
 		return "", false
 	}
-	saved := s.idx
+	start := s.idx
 	s.idx += 2
-	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-' || chr=='+'; chr = s.Read(0) {
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '-', '+', DigitSep:
+			case '0', '1', DigitSep:
+				s.idx++
+			case '-':
+				if !unicode.IsNumber(s.Read(1)) {
+					return string(s.runes[start : s.idx]), false
+				}
 				s.idx++
 			default:
 				col := s.Col()
-				s.idx = saved
+				s.idx = start
 				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in binary literal", chr)
 				return "", false
 		}
 	}
-	return string(s.runes[saved : s.idx]), true
+	return string(s.runes[start : s.idx]), true
 }
 
 func (s *Scanner) LexHex() (string, bool) {
 	if s.Read(0) != '0' || (s.Read(1) != 'x' && s.Read(1) != 'X') {
 		return "", false
 	}
-	saved := s.idx
+	start := s.idx
 	s.idx += 2
-	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-' || chr=='+'; chr = s.Read(0) {
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '+', DigitSep:
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', DigitSep:
 				fallthrough
 			case 'a', 'b', 'c', 'd', 'e', 'f', 'A', 'B', 'C', 'D', 'E', 'F':
 				s.idx++
+			case '-':
+				if !unicode.IsNumber(s.Read(1)) {
+					return string(s.runes[start : s.idx]), false
+				}
+				s.idx++
 			default:
 				col := s.Col()
-				s.idx = saved
+				s.idx = start
 				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in hex literal", chr)
 				return "", false
 		}
 	}
-	return string(s.runes[saved : s.idx]), true
+	return string(s.runes[start : s.idx]), true
 }
 
 func (s *Scanner) LexOctal() (string, bool) {
 	if s.Read(0) != '0' || (s.Read(1) != 'o' && s.Read(1) != 'O') {
 		return "", false
 	}
-	saved := s.idx
+	start := s.idx
 	s.idx += 2
-	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-' || chr=='+'; chr = s.Read(0) {
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7', '-', '+', DigitSep:
+			case '0', '1', '2', '3', '4', '5', '6', '7', DigitSep:
+				s.idx++
+			case '-':
+				if !unicode.IsNumber(s.Read(1)) {
+					return string(s.runes[start : s.idx]), false
+				}
 				s.idx++
 			default:
 				col := s.Col()
-				s.idx = saved
+				s.idx = start
 				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in octal literal", chr)
 				return "", false
 		}
 	}
-	return string(s.runes[saved : s.idx]), true
+	return string(s.runes[start : s.idx]), true
 }
 
 func (s *Scanner) LexDecimal() (string, bool, bool) {
@@ -709,14 +724,19 @@ func (s *Scanner) LexDecimal() (string, bool, bool) {
 	}
 	start := s.idx
 	var got_num bool
-	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='-' || chr=='+'; chr = s.Read(0) {
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='-'; chr = s.Read(0) {
 		switch chr {
 			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 				if !got_num {
 					got_num = true
 				}
 				s.idx++
-			case '-', '+', DigitSep:
+			case DigitSep:
+				s.idx++
+			case '-':
+				if !unicode.IsNumber(s.Read(1)) {
+					return string(s.runes[start : s.idx]), true, false
+				}
 				s.idx++
 			case '.':
 				if s.HasRuneSeq('.', '.', '.') {
@@ -738,7 +758,7 @@ func (s *Scanner) LexFloat(has_num bool) (string, bool, bool) {
 		return "", false, true
 	}
 	
-	saved, got_num := s.idx, has_num
+	start, got_num := s.idx, has_num
 	var got_E, num_after_E, got_math bool
 	for chr := s.Read(0); (isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='+' || chr=='-'); chr = s.Read(0) {
 		switch chr {
@@ -755,7 +775,7 @@ func (s *Scanner) LexFloat(has_num bool) (string, bool, bool) {
 			case '.':
 				if !got_num {
 					col := s.Col()
-					s.idx = saved
+					s.idx = start
 					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "'.' in float literal before numbers.")
 					return "", false, true
 				}
@@ -763,7 +783,7 @@ func (s *Scanner) LexFloat(has_num bool) (string, bool, bool) {
 			case 'e':
 				if got_E {
 					col := s.Col()
-					s.idx = saved
+					s.idx = start
 					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "too many Es in float.")
 					return "", false, true
 				}
@@ -774,7 +794,7 @@ func (s *Scanner) LexFloat(has_num bool) (string, bool, bool) {
 					return "", true, true
 				} else if got_E && !unicode.IsDigit(s.Read(1)) {
 					col := s.Col()
-					s.idx = saved
+					s.idx = start
 					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "missing numbers after +/- in E exponent.")
 					return "", false, true
 				}
@@ -782,18 +802,18 @@ func (s *Scanner) LexFloat(has_num bool) (string, bool, bool) {
 				s.idx++
 			default:
 				col := s.Col()
-				s.idx = saved
+				s.idx = start
 				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in float literal.", chr)
 				return "", false, true
 		}
 	}
 	if got_E && !num_after_E {
 		col := s.Col()
-		s.idx = saved
+		s.idx = start
 		writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "exponent E is missing numbers in float literal.")
 		return "", false, true
 	}
-	return string(s.runes[saved : s.idx]), true, true
+	return string(s.runes[start : s.idx]), true, true
 }
 
 
@@ -831,7 +851,7 @@ func Tokenize(src, filename string) []Token {
 			// single line comment.
 			col, starting, starting_line := s.Col(), s.idx, s.line
 			s.idx += 2
-			for s.Read(0) != '\n' {
+			for s.Read(0) != 0 && s.Read(0) != '\n' {
 				if s.Read(0)=='\\' {
 					s.line++
 					s.idx++

@@ -28,6 +28,8 @@
 #endif
 #define _cfgmap_included
 
+#include "expressions.sp"
+
 
 enum KeyValType {
 	KeyValType_Null,     /// nil
