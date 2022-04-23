@@ -56,6 +56,17 @@ func (parser *Parser) Advance(i int) Token {
 	return parser.GetToken(0)
 }
 
+func (parser *Parser) HasTokenKindSeq(kinds ...TokenKind) bool {
+	matched := true
+	for i := range kinds {
+		if parser.GetToken(i).Kind != kinds[i] {
+			matched = false
+			break
+		}
+	}
+	return matched
+}
+
 // REMEMBER, this auto-increments the token index if it matches.
 // so DO NOT increment the token index after using this.
 func (parser *Parser) got(tk TokenKind) bool {
@@ -933,7 +944,7 @@ func (*stmt) aStmt() {}
 
 
 func (parser *Parser) noSemi() Stmt {
-	parser.syntaxErr("missing ';' semicolon.")
+	parser.syntaxErr("missing ';' semicolon, got %q.", parser.GetToken(-1).ToString())
 	bad := new(BadStmt)
 	copyPosToNode(&bad.node, parser.GetToken(-1))
 	return bad
@@ -1051,7 +1062,7 @@ func (parser *Parser) Statement() Stmt {
 		case TKIdent, TKThis:
 			// vast majority of the times,
 			// an expression starts with an identifier.
-			if t2 := parser.GetToken(1); t2.Kind==TKIdent {
+			if t2 := parser.GetToken(1); t2.Kind==TKIdent || parser.HasTokenKindSeq(TKIdent, TKLBrack, TKRBrack) {
 				// possible var decl with custom type.
 				vardecl := new(DeclStmt)
 				copyPosToNode(&vardecl.node, t)

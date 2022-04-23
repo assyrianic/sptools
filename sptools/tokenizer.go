@@ -594,7 +594,7 @@ func (tok Token) String() string {
 }
 
 func (tok Token) ToString() string {
-	return fmt.Sprintf("%s - line: %d, col: %d | file: '%s'", tok.String(), tok.Line, tok.Col, *tok.Path)
+	return fmt.Sprintf("'%s' - line: '%d', col: '%d' | file: '%s'", tok.String(), tok.Line, tok.Col, *tok.Path)
 }
 
 
@@ -629,6 +629,17 @@ func (s Scanner) Col() uint32 {
 	return uint32(s.idx - s.start)
 }
 
+func (s Scanner) HasRuneSeq(runes ...rune) bool {
+	matched := true
+	for i := range runes {
+		if s.Read(i) != runes[i] {
+			matched = false
+			break
+		}
+	}
+	return matched
+}
+
 
 func (s *Scanner) LexBinary() (string, bool) {
 	if s.Read(0) != '0' || (s.Read(1) != 'b' && s.Read(1) != 'B') {
@@ -636,9 +647,9 @@ func (s *Scanner) LexBinary() (string, bool) {
 	}
 	saved := s.idx
 	s.idx += 2
-	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep; chr = s.Read(0) {
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-' || chr=='+'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', DigitSep:
+			case '0', '1', '-', '+', DigitSep:
 				s.idx++
 			default:
 				col := s.Col()
@@ -656,9 +667,9 @@ func (s *Scanner) LexHex() (string, bool) {
 	}
 	saved := s.idx
 	s.idx += 2
-	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep; chr = s.Read(0) {
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-' || chr=='+'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', DigitSep:
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '+', DigitSep:
 				fallthrough
 			case 'a', 'b', 'c', 'd', 'e', 'f', 'A', 'B', 'C', 'D', 'E', 'F':
 				s.idx++
@@ -678,9 +689,9 @@ func (s *Scanner) LexOctal() (string, bool) {
 	}
 	saved := s.idx
 	s.idx += 2
-	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep; chr = s.Read(0) {
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-' || chr=='+'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7', DigitSep:
+			case '0', '1', '2', '3', '4', '5', '6', '7', '-', '+', DigitSep:
 				s.idx++
 			default:
 				col := s.Col()
@@ -697,12 +708,21 @@ func (s *Scanner) LexDecimal() (string, bool, bool) {
 		return "", false, false
 	}
 	start := s.idx
-	for chr := s.Read(0); (isAlphaNum(chr) || chr==DigitSep || chr=='.'); chr = s.Read(0) {
+	var got_num bool
+	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='-' || chr=='+'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', DigitSep:
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				if !got_num {
+					got_num = true
+				}
+				s.idx++
+			case '-', '+', DigitSep:
 				s.idx++
 			case '.':
-				return s.LexFloat()
+				if s.HasRuneSeq('.', '.', '.') {
+					return string(s.runes[start : s.idx]), true, false
+				}
+				return s.LexFloat(got_num)
 			default:
 				col := s.Col()
 				s.idx = start
@@ -713,13 +733,13 @@ func (s *Scanner) LexDecimal() (string, bool, bool) {
 	return string(s.runes[start : s.idx]), true, false
 }
 
-func (s *Scanner) LexFloat() (string, bool, bool) {
+func (s *Scanner) LexFloat(has_num bool) (string, bool, bool) {
 	if s.Read(0)==0 {
 		return "", false, true
 	}
 	
-	saved := s.idx
-	var got_num, got_E, num_after_E, got_math bool
+	saved, got_num := s.idx, has_num
+	var got_E, num_after_E, got_math bool
 	for chr := s.Read(0); (isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='+' || chr=='-'); chr = s.Read(0) {
 		switch chr {
 			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
@@ -838,7 +858,7 @@ func Tokenize(src, filename string) []Token {
 			}
 			lexeme := string(s.runes[starting : s.idx])
 			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
-		} else if unicode.IsNumber(c) {
+		} else if unicode.IsNumber(c) || c=='-' && unicode.IsNumber(s.Read(1)) && !unicode.IsLetter(s.Read(-1)) {
 			// handle numbers.
 			col, starting_line := s.Col(), s.line
 			if lexeme, result := s.LexBinary(); result {
@@ -995,7 +1015,7 @@ func Tokenize(src, filename string) []Token {
 			for key := range Opers {
 				// Match largest operator first.
 				keylen := len(key)
-				if s.Read(keylen) <= 0 {
+				if s.Read(keylen-1)==0 {
 					continue
 				}
 				

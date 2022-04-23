@@ -15,21 +15,6 @@ var (
 )
 
 
-type tokenList []Token
-type tokenStream struct {
-	tokens []Token
-	index    int
-}
-
-func (ts tokenStream) get(i int) Token {
-	if l := len(ts.tokens); ts.index + i >= l {
-		return ts.tokens[l-1]
-	} else {
-		return ts.tokens[ts.index + i]
-	}
-}
-
-
 type macro struct {
 	params    map[string]int
 	tokens  []Token
@@ -81,6 +66,7 @@ func makeObjMacro(tokens []Token) (macro, int) {
 func (m macro) apply(tokens []Token, i *int) ([]Token, bool) {
 	num_tokens := len(tokens)
 	var output []Token
+	name := tokens[*i]
 	if m.funcLike {
 		if *i+1 < num_tokens && tokens[*i+1].Kind != TKLParen {
 			e := tokens[*i+1]
@@ -99,7 +85,7 @@ func (m macro) apply(tokens []Token, i *int) ([]Token, bool) {
 		}
 		if len(m.params) != len(args) {
 			e := tokens[*i+1]
-			writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "function macro args given (%d) do not match parameters (%d).", len(args), len(m.params))
+			writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "function macro %q args given (%d) do not match parameters (%d).", name.Lexeme, len(args), len(m.params))
 			return tokens, false
 		}
 		*i = idx
@@ -470,37 +456,16 @@ func Preprocess(tokens []Token) ([]Token, bool) {
 	return preprocess(tokens, ifStack, macros)
 }
 
-/*
-func preprocess_new(tokens []Token, ifStack CondInclStack, macros map[string]macro) ([]Token, bool) {
-	var output []Token
-	tokstream := tokenStream{ tokens: tokens, index:0 }
-	for t := tokstream.get(0); t.Kind != TKEoF; t = tokstream.get(0) {
-		///time.Sleep(100 * time.Millisecond)
-		if t.Kind==TKIdent {
-			if m, found := macros[t.Lexeme]; found {
-				if toks, res := m.apply(tokstream); res {
-					toks, _ = preprocess(toks, ifStack, macros)
-					output = append(output, toks...)
-				}
-			} else {
-				output = append(output, t)
-			}
-			continue
-		}
-		
-		if t.Kind==TKHash {
-			switch directive := tokstream.get(1); directive.Lexeme {
-				case 
-			}
-		}
-	}
-}
-*/
 
 func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) ([]Token, bool) {
 	var output []Token
 	num_tokens := len(tokens)
-	for i:=0; i < num_tokens; i++ {
+	/*
+	 * Design wise, we HAVE to loop through the tokens in a very controlled manner.
+	 * The reason why is because we can't loop until EOF because preprocess is called
+	 * recursively, especially on all tokens that macros make as macros can contain other macros.
+	 */
+	for i := 0; i < num_tokens; i++ {
 		t := tokens[i]
 		///time.Sleep(100 * time.Millisecond)
 		if t.Kind==TKIdent {
@@ -652,7 +617,7 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 							writeMsg(nil, os.Stdout, *directive.Path, "syntax error", COLOR_RED, &directive.Line, &directive.Col, "stray #endif.")
 							return tokens, false
 						}
-						i++
+						i += 2
 					case "else":
 						idx := i + 2
 						if len(ifStack) <= 0 {
@@ -666,7 +631,7 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 						betweeners, _ = preprocess(betweeners, ifStack, macros)
 						i = idx + 1
 						output = append(output, betweeners...)
-						i -= 2
+						//i -= 2
 					case "elseif":
 						if len(ifStack) <= 0 {
 							writeMsg(nil, os.Stdout, *directive.Path, "syntax error", COLOR_RED, &directive.Line, &directive.Col, "stray #elseif.")
