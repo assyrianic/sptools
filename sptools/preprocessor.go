@@ -6,6 +6,7 @@ import (
 	"strings"
 	///"time"
 	"strconv"
+	"path/filepath"
 )
 
 
@@ -498,7 +499,8 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 								return tokens, false
 							}
 							if i + 3 < num_tokens {
-								if tokens[i+3].Kind==TKLParen {
+								///fmt.Printf("t3: - %q - t3.Col (%d) :: t2: - %q t2.Col (%d)\n", tokens[i+3].String(), tokens[i+3].Col, t2.String(), t2.Col)
+								if tokens[i+3].Kind==TKLParen && tokens[i+3].Col==t2.Col+uint32(len(t2.Lexeme)) {
 									// function-like macro.
 									if m, offs := makeFuncMacro(tokens[i+4 : len(tokens)]); offs > 0 {
 										macros[t2.Lexeme] = m
@@ -535,19 +537,24 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 								inc_file = str_path.String()
 							}
 							
-							if filetext, read_err := loadFile(inc_file); filetext != "" {
-								inc_tokens := Tokenize(filetext, inc_file)
-								inc_tokens  = ConcatStringLiterals(inc_tokens)
-								if preprocd, res := preprocess(inc_tokens, ifStack, macros); !res {
-									writeMsg(nil, os.Stdout, *t2.Path, "inclusion error", COLOR_RED, &t2.Line, &t2.Col, "failed to preprocess '%s' -- '%s'.", inc_file, read_err)
-									return tokens, false
-								} else {
-									preprocd = StripNewlineTokens(preprocd)
-									output = append(output, preprocd[:len(preprocd)-1]...)
-								}
-							} else if !is_optional {
+							filetext, read_err := loadFile(inc_file)
+							if filetext=="" {
+								filedir := filepath.Dir(*t2.Path)
+								filetext, read_err = loadFile(filedir + string(filepath.Separator) + inc_file)
+							}
+							if filetext=="" && !is_optional {
 								writeMsg(nil, os.Stdout, *t2.Path, "inclusion error", COLOR_RED, &t2.Line, &t2.Col, "couldn't find file '%s'.", inc_file)
 								return tokens, false
+							}
+							
+							inc_tokens := Tokenize(filetext, inc_file)
+							inc_tokens  = ConcatStringLiterals(inc_tokens)
+							if preprocd, res := preprocess(inc_tokens, ifStack, macros); !res {
+								writeMsg(nil, os.Stdout, *t2.Path, "inclusion error", COLOR_RED, &t2.Line, &t2.Col, "failed to preprocess '%s' -- read error: '%s'.", inc_file, read_err)
+								return tokens, false
+							} else {
+								preprocd = StripNewlineTokens(preprocd)
+								output = append(output, preprocd[:len(preprocd)-1]...)
 							}
 						}
 					case "undef":

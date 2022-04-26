@@ -12,6 +12,7 @@ import (
 type (
 	Pos struct {
 		Line, Col uint32
+		Path     *string
 	}
 	Node interface {
 		// line & col.
@@ -27,7 +28,7 @@ func (n *node) Pos() Pos { return n.pos }
 func (*node) aNode() {}
 
 func copyPosToNode(n *node, t Token) {
-	n.pos.Line, n.pos.Col = t.Line, t.Col
+	n.pos.Line, n.pos.Col, n.pos.Path = t.Line, t.Col, t.Path
 }
 
 
@@ -119,11 +120,11 @@ func (parser *Parser) TopDecl() Node {
 		///fmt.Printf("TopDecl :: current tok: %v\n", t)
 		if t.IsStorageClass() || t.IsType() || t.Kind==TKIdent && parser.GetToken(1).Kind==TKIdent {
 			v_or_f_decl := parser.DoVarOrFuncDecl(false)
-			if _, is_var_decl := v_or_f_decl.(*VarDecl); is_var_decl {
+			if vdecl, is_var_decl := v_or_f_decl.(*VarDecl); is_var_decl {
 				if !parser.got(TKSemi) {
+					parser.syntaxErr("missing ';' semicolon for global variable %v.", vdecl.Names)
 					bad := new(BadDecl)
 					copyPosToNode(&bad.node, t)
-					///fmt.Printf("TopDecl :: bad Node: %s | Line: %d, Col: %d\n", t.Lexeme, t.Line, t.Col)
 					plugin.Decls = append(plugin.Decls, bad)
 					continue
 				}
@@ -146,9 +147,9 @@ func (parser *Parser) TopDecl() Node {
 				case TKUsing:
 					type_decl.Type = parser.DoUsingSpec()
 				default:
+					parser.syntaxErr("bad declaration: %q", t.String())
 					bad := new(BadDecl)
 					copyPosToNode(&bad.node, t)
-					///fmt.Printf("TopDecl :: bad Node: %s | Line: %d, Col: %d\n", t.Lexeme, t.Line, t.Col)
 					plugin.Decls = append(plugin.Decls, bad)
 					return plugin
 			}
@@ -687,7 +688,7 @@ func (parser *Parser) DoUsingSpec() Spec {
 	return using
 }
 
-// TypeSetSpec = 'typeset' Ident '{' *( SignatureSpec ';' ) '}' ';' .
+// TypeSetSpec = 'typeset' Ident '{' *( SignatureSpec ';' ) '}' [ ';' ] .
 func (parser *Parser) DoTypeSet() Spec {
 	///defer fmt.Printf("parser.DoTypeSet()\n")
 	typeset := new(TypeSetSpec)
@@ -702,13 +703,9 @@ func (parser *Parser) DoTypeSet() Spec {
 		typeset.Signatures = append(typeset.Signatures, signature)
 		parser.want(TKSemi, ";")
 	}
-	
 	parser.want(TKRCurl, "}")
-	if !parser.got(TKSemi) {
-		parser.syntaxErr("missing ending ';' semicolon for 'typeset' specification.")
-		bad := new(BadSpec)
-		copyPosToNode(&bad.node, parser.GetToken(-1))
-		return bad
+	if parser.GetToken(0).Kind==TKSemi {
+		parser.Advance(1)
 	}
 	return typeset
 }
@@ -735,7 +732,7 @@ func (parser *Parser) DoTypedef() Spec {
 // MethodMapSpec = 'methodmap' Ident [ '__nullable__' ] [ '<' TypeExpr ] '{' [ MethodCtor ] *MethodMapEntry '}' [ ';' ] .
 // MethodCtor = 'public' Ident ParamList ( Block | ';' ) .
 // MethodMapEntry = MethodMapProp | FuncDecl .
-// MethodMapProp = 'property' TypeExpr Ident '{' PropGetter [ PropSetter ] '}' .
+// MethodMapProp = 'property' TypeExpr Ident '{' PropGetter [ PropSetter ] | PropSetter '}' .
 // PropGetter = 'public' [ 'native' ] 'get' '(' ')' ( Block | ';' ) .
 // PropSetter = 'public' [ 'native' ] 'set' ParamList ( Block | ';' ) .
 func (parser *Parser) DoMethodMap() Spec {
@@ -755,15 +752,15 @@ func (parser *Parser) DoMethodMap() Spec {
 	}
 	
 	parser.want(TKLCurl, "{")
-	
 	for t := parser.GetToken(0); t.Kind != TKEoF && (t.Kind==TKPublic || t.Kind==TKProperty); t = parser.GetToken(0) {
 		switch t.Kind {
 			case TKPublic:
 				// gotta use lookahead for this...
 				// if after the 'public' or 'native' keyword is an identifier
 				// and after identifier is a left parenthesis, it's likely the constructor.
-				t1, t2, t3 := parser.GetToken(1), parser.GetToken(2), parser.GetToken(3)
-				if (t1.Kind==TKIdent && t2.Kind==TKLParen) || (t1.Kind==TKNative && t2.Kind==TKIdent && t3.Kind==TKLParen) {
+				//t1, t2, t3 := parser.GetToken(1), parser.GetToken(2), parser.GetToken(3)
+				//if (t1.Kind==TKIdent && t2.Kind==TKLParen) || (t1.Kind==TKNative && t2.Kind==TKIdent && t3.Kind==TKLParen) {
+				if parser.HasTokenKindSeq(TKPublic, TKIdent, TKLParen) || parser.HasTokenKindSeq(TKPublic, TKNative, TKIdent, TKLParen) {
 					// kinda have to make a *FuncDecl from scratch here...
 					ctor_decl := new(FuncDecl)
 					copyPosToNode(&ctor_decl.node, t)
@@ -788,59 +785,62 @@ func (parser *Parser) DoMethodMap() Spec {
 				prop.Type = parser.TypeExpr(false)
 				prop.Ident = parser.PrimaryExpr()
 				parser.want(TKLCurl, "{")
-				// getter part.
-				prop.GetterClass = parser.StorageClass()
-				if parser.GetToken(0).Lexeme != "get" {
-					parser.syntaxErr("expected 'get' implementation for methodmap property.")
-					bad := new(BadSpec)
-					copyPosToNode(&bad.node, parser.GetToken(-1))
-					return bad
+				if spec_ret := parser.DoMethodMapProperty(prop); spec_ret != nil {
+					methodmap.Props = append(methodmap.Props, spec_ret)
+					goto methodmap_loop_exit
 				}
-				parser.Advance(1)
-				parser.want(TKLParen, "(")
-				parser.want(TKRParen, ")")
-				if end := parser.GetToken(0); end.Kind==TKLCurl {
-					prop.GetterBlock = parser.DoBlock()
-				} else if end.Kind==TKSemi {
-					parser.Advance(1)
-				} else {
-					parser.syntaxErr("expected ending } or ; for get implementation on methodmap property.")
-					bad := new(BadSpec)
-					copyPosToNode(&bad.node, parser.GetToken(-1))
-					return bad
-				}
-				
-				// setter part.
 				if parser.GetToken(0).Kind==TKPublic {
-					prop.SetterClass = parser.StorageClass()
-					if parser.GetToken(0).Lexeme != "set" {
-						parser.syntaxErr("expected 'set' implementation for methodmap property.")
-						bad := new(BadSpec)
-						copyPosToNode(&bad.node, parser.GetToken(-1))
-						return bad
-					}
-					parser.Advance(1)
-					prop.SetterParams = parser.DoParamList()
-					if end := parser.GetToken(0); end.Kind==TKLCurl {
-						prop.SetterBlock = parser.DoBlock()
-					} else if end.Kind==TKSemi {
-						parser.Advance(1)
-					} else {
-						parser.syntaxErr("expected ending } or ; for set implementation on methodmap property.")
-						bad := new(BadSpec)
-						copyPosToNode(&bad.node, parser.GetToken(-1))
-						return bad
+					if spec_ret := parser.DoMethodMapProperty(prop); spec_ret != nil {
+						methodmap.Props = append(methodmap.Props, spec_ret)
+						goto methodmap_loop_exit
 					}
 				}
 				parser.want(TKRCurl, "}")
 				methodmap.Props = append(methodmap.Props, prop)
 		}
 	}
+methodmap_loop_exit:
 	parser.want(TKRCurl, "}")
 	if parser.GetToken(0).Kind==TKSemi {
 		parser.Advance(1)
 	}
 	return methodmap
+}
+
+
+func (parser *Parser) DoMethodMapProperty(prop *MethodMapPropSpec) *BadSpec {
+	storage_cls := parser.StorageClass()
+	if parser.GetToken(0).Lexeme=="get" {
+		prop.GetterClass = storage_cls
+		parser.Advance(1)
+		parser.want(TKLParen, "(")
+		parser.want(TKRParen, ")")
+		if end := parser.GetToken(0); end.Kind==TKLCurl {
+			prop.GetterBlock = parser.DoBlock()
+		} else if end.Kind==TKSemi {
+			parser.Advance(1)
+		} else {
+			parser.syntaxErr("expected ending } or ; for get implementation on methodmap property.")
+			bad := new(BadSpec)
+			copyPosToNode(&bad.node, parser.GetToken(-1))
+			return bad
+		}
+	} else if parser.GetToken(0).Lexeme=="set" {
+		prop.SetterClass = storage_cls
+		parser.Advance(1)
+		prop.SetterParams = parser.DoParamList()
+		if end := parser.GetToken(0); end.Kind==TKLCurl {
+			prop.SetterBlock = parser.DoBlock()
+		} else if end.Kind==TKSemi {
+			parser.Advance(1)
+		} else {
+			parser.syntaxErr("expected ending } or ; for set implementation on methodmap property.")
+			bad := new(BadSpec)
+			copyPosToNode(&bad.node, parser.GetToken(-1))
+			return bad
+		}
+	}
+	return nil
 }
 
 
@@ -1140,7 +1140,7 @@ func (parser *Parser) While(t Token) Stmt {
 	return while
 }
 
-// IfStmt = 'if' Expr Statement [ 'else' Statement ] .
+// IfStmt = 'if' '(' Expr ')' Statement [ 'else' Statement ] .
 func (parser *Parser) DoIf() Stmt {
 	///defer fmt.Printf("parser.DoIf()\n")
 	parser.want(TKIf, "if")
@@ -1667,7 +1667,7 @@ func (parser *Parser) MulExpr() Expr {
 	return e
 }
 
-// Prefix = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new' ) Postfix .
+// PrefixExpr = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new' ) PostfixExpr .
 func (parser *Parser) PrefixExpr() Expr {
 	///defer fmt.Printf("parser.PrefixExpr()\n")
 	// certain patterns are allowed to recursively run Prefix.
@@ -1761,7 +1761,7 @@ func (parser *Parser) ExprList(end, sep TokenKind, sep_at_end bool) []Expr {
 }
 
 
-// Postfix = Primary *( '.' identifier | '[' Expr ']' | '(' [ ExprList ] ')' | '::' identifier | '++' | '--' ) .
+// PostfixExpr = Primary *( '.' identifier | '[' Expr ']' | '(' [ ExprList ] ')' | '::' identifier | '++' | '--' ) .
 func (parser *Parser) PostfixExpr() Expr {
 	///defer fmt.Printf("parser.PostfixExpr()\n")
 	n := Expr(nil)
@@ -1924,13 +1924,13 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 		case nil:
 			fmt.Fprintf(w, "nil Node\n")
 		case *BadStmt:
-			fmt.Fprintf(w, "Bad Stmt Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+			fmt.Fprintf(w, "Bad Stmt Node:: Line: %v | Col: %v | Path: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path)
 		case *BadExpr:
-			fmt.Fprintf(w, "Bad Expr Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+			fmt.Fprintf(w, "Bad Expr Node:: Line: %v | Col: %v | Path: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path)
 		case *BadSpec:
-			fmt.Fprintf(w, "Bad Spec Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+			fmt.Fprintf(w, "Bad Spec Node:: Line: %v | Col: %v | Path: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path)
 		case *BadDecl:
-			fmt.Fprintf(w, "Bad Decl Node:: Line: %v | Col: %v\n", ast.node.pos.Line, ast.node.pos.Col)
+			fmt.Fprintf(w, "Bad Decl Node:: Line: %v | Col: %v | Path: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path)
 		case *NullExpr:
 			fmt.Fprintf(w, "'null' expr\n")
 		case *BasicLit:

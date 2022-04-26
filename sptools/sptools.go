@@ -42,7 +42,7 @@ func writeMsg(msg_cnt *uint32, w io.Writer, filename, msgtype, color string, lin
 
 func loadFile(filename string) (string, string) {
 	if text, read_err := ioutil.ReadFile(filename); read_err==nil {
-		return string(text), "good"
+		return string(text), "none"
 	} else {
 		return "", read_err.Error()
 	}
@@ -65,6 +65,9 @@ func LexFile(filename string, flags int) ([]Token, bool) {
 	}
 	
 	tokens = Tokenize(code, filename)
+	for i := range tokens {
+		fmt.Printf("before preprocessing::= %s\n", tokens[i].ToString())
+	}
 	if flags & LEXFLAG_PREPROCESS > 0 {
 		if output, res := Preprocess(tokens); res {
 			output = StripNewlineTokens(output)

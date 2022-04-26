@@ -8,8 +8,10 @@ import (
 	"unicode/utf8"
 )
 
-
+// DigitSep is used when lexing the various numeric literals
+// SourcePawn can support such as hexadecimal, octal, binary, & decimal.
 const DigitSep = '_'
+
 func isIden(c rune) bool {
 	return unicode.IsLetter(c) || unicode.IsNumber(c) || c==DigitSep
 }
@@ -23,6 +25,7 @@ func isOctal(c rune) bool {
 	return (c >= '0' && c <= '7')
 }
 
+// Represents a token's kind/class.
 type TokenKind uint8
 const (
 	TKEoF = TokenKind(iota)
@@ -30,6 +33,7 @@ const (
 	
 	// used for preprocessor, removed afterwards.
 	TKNewline
+	//TKSpace
 	
 	// literal values
 	TKIdent
@@ -394,6 +398,7 @@ var (
 		TKEoF: "<end-of-file>",
 		TKComment: "<comment>",
 		TKNewline: "<newline>",
+		//TKSpace: "<space>",
 		TKIdent: "<identifier>",
 		TKIntLit: "<integer>",
 		TKFloatLit: "<float>",
@@ -594,7 +599,7 @@ func (tok Token) String() string {
 }
 
 func (tok Token) ToString() string {
-	return fmt.Sprintf("'%s' - line: '%d', col: '%d' | file: '%s'", tok.String(), tok.Line, tok.Col, *tok.Path)
+	return fmt.Sprintf("Token:: %q - line: '%d', col: '%d' | file: %q", tok.String(), tok.Line, tok.Col, *tok.Path)
 }
 
 
@@ -835,6 +840,13 @@ func Tokenize(src, filename string) []Token {
 				s.line++
 				s.start = s.idx
 			}
+			/*
+			else if c==' ' {
+				for s.Read(0)==' ' {
+					s.idx++
+				}
+				tokens = append(tokens, Token{Lexeme: " ", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKSpace})
+			}*/
 		} else if unicode.IsLetter(c) || c=='_' {
 			// handle identifiers & keywords.
 			col, starting := s.Col(), s.idx
@@ -878,7 +890,7 @@ func Tokenize(src, filename string) []Token {
 			}
 			lexeme := string(s.runes[starting : s.idx])
 			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
-		} else if unicode.IsNumber(c) || c=='-' && unicode.IsNumber(s.Read(1)) && !unicode.IsLetter(s.Read(-1)) {
+		} else if unicode.IsNumber(c) || (c=='-' && unicode.IsNumber(s.Read(1)) && !unicode.IsLetter(s.Read(-1))) {
 			// handle numbers.
 			col, starting_line := s.Col(), s.line
 			if lexeme, result := s.LexBinary(); result {
@@ -908,6 +920,8 @@ func Tokenize(src, filename string) []Token {
 					s.idx++
 					switch esc := s.Read(0); esc {
 						case '\n':
+							s.line++
+							s.start = s.idx
 							s.idx++
 						case '\'', '"':
 							b.WriteRune(esc)
@@ -1016,6 +1030,8 @@ func Tokenize(src, filename string) []Token {
 								b.WriteRune(value)
 							}
 					}
+				} else if s.Read(0)=='\n' {
+					break
 				} else {
 					b.WriteRune(s.Read(0))
 					s.idx++
