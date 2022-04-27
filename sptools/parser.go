@@ -202,8 +202,7 @@ var StorageClassToString = [...]string{
 
 func (sc StorageClassFlags) String() string {
 	var sb strings.Builder
-	flag := IsPublic
-	for sc != 0 && flag < MaxStorageClasses {
+	for flag := IsPublic; sc != 0 && flag < MaxStorageClasses; flag <<= 1 {
 		if sc & flag > 0 {
 			if sb.Len() > 0 {
 				sb.WriteString(" ")
@@ -211,7 +210,6 @@ func (sc StorageClassFlags) String() string {
 			sb.WriteString(StorageClassToString[flag])
 			sc &^= flag
 		}
-		flag <<= 1;
 	}
 	return sb.String()
 }
