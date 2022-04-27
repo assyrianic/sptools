@@ -488,7 +488,7 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 						// skipping this for now.
 						idx := i + 1
 						skipToNextLine(tokens, &idx)
-						i = idx
+						i = idx - 1
 					case "endinput", "endscript":
 						goto preprocessing_done
 					case "define":

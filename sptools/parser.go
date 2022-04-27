@@ -121,8 +121,15 @@ func (parser *Parser) TopDecl() Node {
 		if t.IsStorageClass() || t.IsType() || t.Kind==TKIdent && parser.GetToken(1).Kind==TKIdent {
 			v_or_f_decl := parser.DoVarOrFuncDecl(false)
 			if vdecl, is_var_decl := v_or_f_decl.(*VarDecl); is_var_decl {
-				if !parser.got(TKSemi) {
-					parser.syntaxErr("missing ';' semicolon for global variable %v.", vdecl.Names)
+				if parser.GetToken(-1).Kind==TKRCurl {
+					if parser.GetToken(0).Kind==TKSemi {
+						parser.Advance(1)
+					}
+				} else if !parser.got(TKSemi) {
+					parser.syntaxErr("missing ';' semicolon for global variable:")
+					for i := range vdecl.Names {
+						PrintNode(vdecl.Names[i], 1, os.Stdout)
+					}
 					bad := new(BadDecl)
 					copyPosToNode(&bad.node, t)
 					plugin.Decls = append(plugin.Decls, bad)
@@ -163,7 +170,7 @@ func (parser *Parser) TopDecl() Node {
 }
 
 
-type StorageClassFlags int
+type StorageClassFlags uint16
 const (
 	IsPublic = StorageClassFlags(1 << iota)
 	IsConst
@@ -176,50 +183,35 @@ const (
 	IsReadOnly
 	IsSealed
 	IsVirtual
+	MaxStorageClasses
 )
+
+var StorageClassToString = [...]string{
+	IsPublic: "public",
+	IsConst: "const",
+	IsNative: "native",
+	IsForward: "forward",
+	IsStatic: "static",
+	IsStock: "stock",
+	IsPrivate: "private",
+	IsProtected: "protected",
+	IsReadOnly: "readonly",
+	IsSealed: "sealed",
+	IsVirtual: "virtual",
+}
 
 func (sc StorageClassFlags) String() string {
 	var sb strings.Builder
-	n := sc
-	for n != 0 {
-		if sb.Len() > 0 {
-			sb.WriteString(" ")
+	flag := IsPublic
+	for sc != 0 && flag < MaxStorageClasses {
+		if sc & flag > 0 {
+			if sb.Len() > 0 {
+				sb.WriteString(" ")
+			}
+			sb.WriteString(StorageClassToString[flag])
+			sc &^= flag
 		}
-		switch {
-			case n & IsPublic > 0:
-				sb.WriteString("public")
-				n &^= IsPublic
-			case n & IsConst > 0:
-				sb.WriteString("const")
-				n &^= IsConst
-			case n & IsNative > 0:
-				sb.WriteString("native")
-				n &^= IsNative
-			case n & IsForward > 0:
-				sb.WriteString("forward")
-				n &^= IsForward
-			case n & IsStatic > 0:
-				sb.WriteString("static")
-				n &^= IsStatic
-			case n & IsStock > 0:
-				sb.WriteString("stock")
-				n &^= IsStock
-			case n & IsPrivate > 0:
-				sb.WriteString("private")
-				n &^= IsPrivate
-			case n & IsProtected > 0:
-				sb.WriteString("protected")
-				n &^= IsProtected
-			case n & IsReadOnly > 0:
-				sb.WriteString("readonly")
-				n &^= IsReadOnly
-			case n & IsSealed > 0:
-				sb.WriteString("sealed")
-				n &^= IsSealed
-			case n & IsVirtual > 0:
-				sb.WriteString("virtual")
-				n &^= IsVirtual
-		}
+		flag <<= 1;
 	}
 	return sb.String()
 }
@@ -947,7 +939,7 @@ func (*stmt) aStmt() {}
 
 
 func (parser *Parser) noSemi() Stmt {
-	parser.syntaxErr("missing ';' semicolon, got %q.", parser.GetToken(-1).ToString())
+	parser.syntaxErr("missing ';' semicolon, got %q.", parser.GetToken(-1).String())
 	bad := new(BadStmt)
 	copyPosToNode(&bad.node, parser.GetToken(-1))
 	return bad

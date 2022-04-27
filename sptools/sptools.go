@@ -65,9 +65,11 @@ func LexFile(filename string, flags int) ([]Token, bool) {
 	}
 	
 	tokens = Tokenize(code, filename)
+	/**
 	for i := range tokens {
 		fmt.Printf("before preprocessing::= %s\n", tokens[i].ToString())
 	}
+	*/
 	if flags & LEXFLAG_PREPROCESS > 0 {
 		if output, res := Preprocess(tokens); res {
 			output = StripNewlineTokens(output)
