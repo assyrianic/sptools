@@ -13,6 +13,7 @@ type (
 	Pos struct {
 		Line, Col uint32
 		Path     *string
+		Tok      *Token
 	}
 	Node interface {
 		// line & col.
@@ -28,14 +29,14 @@ func (n *node) Pos() Pos { return n.pos }
 func (*node) aNode() {}
 
 func copyPosToNode(n *node, t Token) {
-	n.pos.Line, n.pos.Col, n.pos.Path = t.Line, t.Col, t.Path
+	n.pos.Line, n.pos.Col, n.pos.Path, n.pos.Tok = t.Line, t.Col, t.Path, &t
 }
 
 
 type Parser struct {
 	tokens []Token
+	Errs   []string
 	idx      int
-	Errs     uint32
 }
 
 func (parser *Parser) GetToken(offset int) Token {
@@ -78,13 +79,10 @@ func (parser *Parser) got(tk TokenKind) bool {
 	return false
 }
 
-func (parser *Parser) syntaxErr(msg string, args ...interface{}) {
+func (parser *Parser) syntaxErr(msg string, args ...any) {
 	token := parser.GetToken(-1)
-	writeMsg(&parser.Errs, os.Stdout, *token.Path, "syntax error", COLOR_RED, &token.Line, &token.Col, msg, args...)
-	if parser.Errs > 20 {
-		writeMsg(&parser.Errs, os.Stdout, *token.Path, "syntax error", COLOR_RED, &token.Line, &token.Col, "too many errors!")
-		os.Exit(-1)
-	}
+	str := makeMsg(*token.Path, "syntax error", COLOR_RED, &token.Line, &token.Col, msg, args...)
+	parser.Errs = append(parser.Errs, str)
 }
 
 func (parser *Parser) want(tk TokenKind, lexeme string) bool {
@@ -119,6 +117,7 @@ func (parser *Parser) TopDecl() Node {
 		///time.Sleep(100 * time.Millisecond)
 		///fmt.Printf("TopDecl :: current tok: %v\n", t)
 		if t.IsStorageClass() || t.IsType() || t.Kind==TKIdent && parser.GetToken(1).Kind==TKIdent {
+			///fmt.Printf("TopDecl :: func or var decl: %v\n", t)
 			v_or_f_decl := parser.DoVarOrFuncDecl(false)
 			if vdecl, is_var_decl := v_or_f_decl.(*VarDecl); is_var_decl {
 				if parser.GetToken(-1).Kind==TKRCurl {
@@ -133,11 +132,12 @@ func (parser *Parser) TopDecl() Node {
 					bad := new(BadDecl)
 					copyPosToNode(&bad.node, t)
 					plugin.Decls = append(plugin.Decls, bad)
-					continue
+					goto err_exit
 				}
 			}
 			plugin.Decls = append(plugin.Decls, v_or_f_decl)
 		} else {
+			///fmt.Printf("TopDecl :: type decl: %v\n", t)
 			type_decl := new(TypeDecl)
 			copyPosToNode(&type_decl.node, t)
 			switch t.Kind {
@@ -158,13 +158,18 @@ func (parser *Parser) TopDecl() Node {
 					bad := new(BadDecl)
 					copyPosToNode(&bad.node, t)
 					plugin.Decls = append(plugin.Decls, bad)
-					return plugin
+					goto err_exit
 			}
 			plugin.Decls = append(plugin.Decls, type_decl)
 		}
 	}
-	if parser.Errs==0 {
+err_exit:
+	if len(parser.Errs)==0 {
 		writeMsg(nil, os.Stdout, "", "sptools", COLOR_GREEN, nil, nil, "Parsing completed without errors.")
+	} else {
+		for _, err := range parser.Errs {
+			fmt.Fprintf(os.Stdout, "%s\n", err)
+		}
 	}
 	return plugin
 }
@@ -346,7 +351,7 @@ func (parser *Parser) DoVarDeclarator(vdecl *VarDecl, param bool) {
 			vdecl.Inits = append(vdecl.Inits, nil)
 		}
 		
-		if ending := parser.GetToken(0); param || ending.Kind==TKEoF {
+		if ending := parser.GetToken(0); param || ending.Kind==TKEoF || ending.Kind==TKSemi {
 			break
 		} else if ending.Kind==TKComma {
 			parser.Advance(1)
@@ -373,6 +378,7 @@ func (parser *Parser) DoParamList() []Decl {
 		
 		var_decl := parser.DoVarOrFuncDecl(true)
 		if _, is_var_decl := var_decl.(*VarDecl); !is_var_decl {
+			parser.syntaxErr("bad declaration: expected var declaration.")
 			bad_decl := new(BadDecl)
 			copyPosToNode(&bad_decl.node, t)
 			params = append(params, bad_decl)
@@ -397,7 +403,11 @@ func (parser *Parser) DoFuncDeclarator(fdecl *FuncDecl) {
 		case TKAssign:
 			parser.Advance(1)
 			fdecl.Body = parser.MainExpr()
+			if parser.GetToken(0).Kind==TKSemi {
+				parser.Advance(1)
+			}
 		default:
+			parser.syntaxErr("bad declaration: expected body or semicolon for function.")
 			fdecl.Body = new(BadDecl)
 			copyPosToNode(&fdecl.node, t)
 	}
@@ -1073,7 +1083,7 @@ func (parser *Parser) Statement() Stmt {
 				}
 				return exp
 			}
-		case TKIncr, TKDecr:
+		case TKIncr, TKDecr, TKViewAs:
 			exp := new(ExprStmt)
 			copyPosToNode(&exp.node, t)
 			exp.X = parser.MainExpr()
@@ -1095,6 +1105,7 @@ func (parser *Parser) Statement() Stmt {
 			parser.Advance(1)
 			fallthrough
 		default:
+			parser.syntaxErr("unknown statement: %q", t.String())
 			bad := new(BadStmt)
 			copyPosToNode(&bad.node, parser.GetToken(0))
 			parser.Advance(1)
@@ -1722,6 +1733,7 @@ func (parser *Parser) ViewAsExpr() Expr {
 // ExprList = START ListedExpr *( SEP ListedExpr ) END .
 // ListedExpr = NamedArgExpr | AssignExpr .
 func (parser *Parser) ExprList(end, sep TokenKind, sep_at_end bool) []Expr {
+	///defer fmt.Printf("parser.ExprList()\n")
 	var exprs []Expr
 	for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != end; t = parser.GetToken(0) {
 		if !sep_at_end && len(exprs) > 0 {
@@ -1914,13 +1926,13 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 		case nil:
 			fmt.Fprintf(w, "nil Node\n")
 		case *BadStmt:
-			fmt.Fprintf(w, "Bad Stmt Node:: Line: %v | Col: %v | Path: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path)
+			fmt.Fprintf(w, "Bad Stmt Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
 		case *BadExpr:
-			fmt.Fprintf(w, "Bad Expr Node:: Line: %v | Col: %v | Path: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path)
+			fmt.Fprintf(w, "Bad Expr Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
 		case *BadSpec:
-			fmt.Fprintf(w, "Bad Spec Node:: Line: %v | Col: %v | Path: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path)
+			fmt.Fprintf(w, "Bad Spec Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
 		case *BadDecl:
-			fmt.Fprintf(w, "Bad Decl Node:: Line: %v | Col: %v | Path: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path)
+			fmt.Fprintf(w, "Bad Decl Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
 		case *NullExpr:
 			fmt.Fprintf(w, "'null' expr\n")
 		case *BasicLit:

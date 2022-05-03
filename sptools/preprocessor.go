@@ -74,15 +74,17 @@ func (m macro) apply(tokens []Token, i *int) ([]Token, bool) {
 			writeMsg(nil, os.Stdout, *e.Path, "syntax error", COLOR_RED, &e.Line, &e.Col, "expected ( where function-like macro but have '%s'.", e.Lexeme)
 			return tokens, false
 		}
-		args := make(map[int]Token)
+		args := make(map[int][]Token)
 		idx, num_arg := *i + 2, 0
 		for idx < num_tokens && tokens[idx].Kind != TKRParen {
 			if tokens[idx].Kind==TKComma {
 				idx++
 			}
-			args[num_arg] = tokens[idx]
+			for idx < num_tokens && tokens[idx].Kind != TKComma && tokens[idx].Kind != TKRParen {
+				args[num_arg] = append(args[num_arg], tokens[idx])
+				idx++
+			}
 			num_arg++
-			idx++
 		}
 		if len(m.params) != len(args) {
 			e := tokens[*i+1]
@@ -97,14 +99,16 @@ func (m macro) apply(tokens []Token, i *int) ([]Token, bool) {
 				output = append(output, Token{Lexeme: line_str, Path: x.Path, Line: x.Line, Col: x.Col, Kind: TKIntLit})
 			} else if x.Kind==TKMod && n + 1 < len(m.tokens) && m.tokens[n+1].Kind==TKIntLit {
 				if param, found := m.params["%" + m.tokens[n+1].Lexeme]; found {
-					output = append(output, args[param])
+					output = append(output, args[param]...)
 				}
 				n++
 			} else if x.Kind==TKHash && n + 1 < len(m.tokens) && m.tokens[n+1].Kind==TKMod && n + 2 < len(m.tokens) && m.tokens[n+2].Kind==TKIntLit {
 				// stringify
 				if param, found := m.params["%" + m.tokens[n+2].Lexeme]; found {
-					stringified := args[param]
-					stringified.Kind = TKStrLit
+					stringified := Token{ Path: args[param][0].Path, Line: args[param][0].Line, Col: args[param][0].Col, Kind: TKStrLit }
+					for _, tk := range args[param] {
+						stringified.Lexeme += tk.Lexeme
+					}
 					output = append(output, stringified)
 				}
 				n += 2
@@ -608,11 +612,13 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 								output = append(output, betweeners...)
 								///fmt.Printf("#if after:: %v\n", tokens[i])
 								
-								i = idx + 1
+								i = idx
+								///fmt.Printf("#if token i updated but before:: %q\n", tokens[i].ToString())
 								for i < len(tokens) && tokens[i].Lexeme != "endif" {
 									goToNextCondIncl(tokens, &i)
 								}
 								i -= 2
+								///fmt.Printf("#if i updated:: %v\n", i)
 							} else {
 								goToNextCondIncl(tokens, &idx)
 								i = idx - 2
@@ -662,7 +668,7 @@ func preprocess(tokens []Token, ifStack CondInclStack, macros map[string]macro) 
 								betweeners, _ = preprocess(betweeners, ifStack, macros)
 								output = append(output, betweeners...)
 								
-								i = idx + 1
+								i = idx
 								for i < len(tokens) && tokens[i].Lexeme != "endif" {
 									goToNextCondIncl(tokens, &i)
 								}

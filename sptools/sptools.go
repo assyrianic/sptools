@@ -5,6 +5,7 @@ import (
 	"os"
 	"io"
 	"io/ioutil"
+	"strings"
 )
 
 // colorful strings for printing.
@@ -19,22 +20,30 @@ const (
 	COLOR_RESET   = "\033[0m"     // used to reset the color.
 )
 
-// prints out a message like: "(filename:line:col) msgtype: **** msg_fmt ****" to io.Writer
-// 'msg_cnt, line, col' can be nil
-func writeMsg(msg_cnt *uint32, w io.Writer, filename, msgtype, color string, line, col *uint32, msg_fmt string, args ...interface{}) {
+
+func makeMsg(filename, msgtype, color string, line, col *uint32, msg_fmt string, args ...any) string {
+	var sb strings.Builder
 	if filename != "" {
-		fmt.Fprintf(w, "(%s", filename)
+		sb.WriteString("(")
+		sb.WriteString(filename)
 		if line != nil {
-			fmt.Fprintf(w, ":%d", *line)
+			sb.WriteString(fmt.Sprintf(":%d", *line))
 		}
 		if col != nil {
-			fmt.Fprintf(w, ":%d", *col)
+			sb.WriteString(fmt.Sprintf(":%d", *col))
 		}
-		fmt.Fprintf(w, ") ")
+		sb.WriteString(") ")
 	}
-	fmt.Fprintf(w, "%s%s%s: **** ", color, msgtype, COLOR_RESET)
-	fmt.Fprintf(w, msg_fmt, args...)
-	fmt.Fprintf(w, " ****\n")
+	sb.WriteString(fmt.Sprintf("%s%s%s: **** ", color, msgtype, COLOR_RESET))
+	sb.WriteString(fmt.Sprintf(msg_fmt, args...))
+	sb.WriteString(" ****")
+	return sb.String()
+}
+
+// prints out a message like: "(filename:line:col) msgtype: **** msg_fmt ****" to io.Writer
+// 'msg_cnt, line, col' can be nil
+func writeMsg(msg_cnt *uint32, w io.Writer, filename, msgtype, color string, line, col *uint32, msg_fmt string, args ...any) {
+	fmt.Fprintf(w, "%s\n", makeMsg(filename, msgtype, color, line, col, msg_fmt, args...))
 	if msg_cnt != nil {
 		*msg_cnt++
 	}
@@ -65,11 +74,6 @@ func LexFile(filename string, flags int) ([]Token, bool) {
 	}
 	
 	tokens = Tokenize(code, filename)
-	/**
-	for i := range tokens {
-		fmt.Printf("before preprocessing::= %s\n", tokens[i].ToString())
-	}
-	*/
 	if flags & LEXFLAG_PREPROCESS > 0 {
 		if output, res := Preprocess(tokens); res {
 			output = StripNewlineTokens(output)
@@ -86,11 +90,16 @@ func LexFile(filename string, flags int) ([]Token, bool) {
 }
 
 
+func ParseTokens(tokens []Token) Node {
+	parser := Parser{ tokens: tokens }
+	return parser.Start()
+}
+
+
 func ParseFile(filename string, flags int) Node {
 	if tokens, result := LexFile(filename, flags); !result {
 		return nil
 	} else {
-		parser := Parser{ tokens: tokens, idx: 0, Errs: 0 }
-		return parser.Start()
+		return ParseTokens(tokens)
 	}
 }

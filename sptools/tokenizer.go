@@ -747,7 +747,7 @@ func (s *Scanner) LexDecimal() (string, bool, bool) {
 				if s.HasRuneSeq('.', '.', '.') {
 					return string(s.runes[start : s.idx]), true, false
 				}
-				return s.LexFloat(got_num)
+				return s.LexFloat(start, got_num)
 			default:
 				col := s.Col()
 				s.idx = start
@@ -758,11 +758,11 @@ func (s *Scanner) LexDecimal() (string, bool, bool) {
 	return string(s.runes[start : s.idx]), true, false
 }
 
-func (s *Scanner) LexFloat(has_num bool) (string, bool, bool) {
+func (s *Scanner) LexFloat(starter int, has_num bool) (string, bool, bool) {
 	if s.Read(0)==0 {
 		return "", false, true
 	}
-	
+	s.idx = starter
 	start, got_num := s.idx, has_num
 	var got_E, num_after_E, got_math bool
 	for chr := s.Read(0); (isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='+' || chr=='-'); chr = s.Read(0) {
@@ -890,7 +890,7 @@ func Tokenize(src, filename string) []Token {
 			}
 			lexeme := string(s.runes[starting : s.idx])
 			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
-		} else if unicode.IsNumber(c) || (c=='-' && unicode.IsNumber(s.Read(1)) && !unicode.IsLetter(s.Read(-1))) {
+		} else if unicode.IsNumber(c) {
 			// handle numbers.
 			col, starting_line := s.Col(), s.line
 			if lexeme, result := s.LexBinary(); result {
