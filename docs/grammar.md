@@ -24,7 +24,7 @@ SignatureSpec = 'function' AbstractDecl ParamsList .
 
 ## Specifications
 ```ebnf
-EnumSpec = 'enum' [ ident [ ':' ] '(' operator PrimaryExpr ')' ] '{' +EnumEntry '}' [ ';' ] .
+EnumSpec = 'enum' [ ident [ ':' ] [ '(' operator PrimaryExpr ')' ] ] '{' +EnumEntry '}' [ ';' ] .
 EnumEntry = Ident [ '=' Expr ] .
 
 StructSpec = 'struct' Ident '{' *Field '}' [ ';' ] .
