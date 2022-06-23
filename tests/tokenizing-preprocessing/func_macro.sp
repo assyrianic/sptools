@@ -67,5 +67,6 @@ CREATE_NATIVE(SubPlugins);
 #define INVALID_FF2PLAYER    ToFF2Player(-1)
 #define ToFF2Player(%0)      view_as< FF2Player >(%0)
 #define FF2_PREFIX           "{olive}[FF2]{default} "
+#define FF2_RESOLVE_FUNC(%0)	static stock void FF2Resolve_%0(ArrayList delete_list, const ConfigMapAllocator cfg, char[] key, int len)
 
 INVALID_FF2PLAYER

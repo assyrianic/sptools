@@ -13,7 +13,7 @@ VarDeclarator = Ident [ IndexExpr ] [ Initializer ] *( ',' VarDeclarator ) .
 Initializer = '=' SubMainExpr | '{' Expr [ ',' ( '...' | *Expr ) ] '}' .
 
 ParamList = '(' *VarDecl ')' .
-FuncSpec = Ident ParamList ( Initializer | BlockStmt | ';' ) .
+FuncDeclarator = Ident ParamList ( Initializer | BlockStmt | ';' ) .
 
 StorageClass = 'native' | 'forward' | 'const' | 'static' | 'stock' | 'public' | 'private' | 'protected' | 'readonly' | 'sealed' | 'virtual' .
 AbstractDecl = Type [ *'[]' | '&' ] .
@@ -36,9 +36,10 @@ TypeSetSpec = 'typeset' Ident '{' *( SignatureSpec ';' ) '}' [ ';' ] .
 TypeDefSpec = 'typedef' Ident '=' SignatureSpec ';' .
 
 MethodMapSpec = 'methodmap' Ident [ '__nullable__' ] [ '<' TypeExpr ] '{' [ MethodCtor ] *MethodMapEntry '}' [ ';' ] .
-MethodCtor = 'public' Ident ParamList ( BlockStmt | ';' ) .
+MethodCtor = 'public' [ 'native' ] Ident ParamList ( BlockStmt | ';' ) .
 MethodMapEntry = MethodMapProp | FuncDecl .
 MethodMapProp = 'property' TypeExpr Ident '{' PropGetter [ PropSetter ] | PropSetter '}' .
+
 PropGetter = 'public' [ 'native' ] 'get' '(' ')' ( BlockStmt | ';' ) .
 PropSetter = 'public' [ 'native' ] 'set' ParamList ( BlockStmt | ';' ) .
 ```
@@ -102,5 +103,5 @@ PostfixExpr = Primary *( '.' identifier | '[' Expr ']' | '(' [ ExprList ] ')' | 
 BoolLit = 'true' | 'false' .
 BasicLit = int_lit | rune_lit | string_lit .
 BracketExpr = '{' ExprList '}' .
-Primary = BasicLit | identifier | BoolLit | 'this' | 'null' | '...' | '(' Expr ')' | BracketExpr .
+Primary = BasicLit | identifier | 'operator' op | BoolLit | 'this' | 'null' | '...' | '(' Expr ')' | BracketExpr .
 ```

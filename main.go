@@ -15,14 +15,14 @@ func main() {
 			fmt.Fprintf(tok_output, "%s\n", tk.ToString())
 		}
 		fmt.Fprintf(tok_output, "number of tokens: %d\n", len(plugin_tokens))
-		///*
+		/*
 		if plugin_node := SPTools.ParseTokens(plugin_tokens); plugin_node != nil {
 			node_output, _ := os.Create("sptools_node_output.txt")
 			SPTools.PrintNode(plugin_node, 0, node_output)
 		} else {
 			fmt.Printf("failed to parse\n")
 		}
-		//*/
+		*/
 	} else {
 		fmt.Printf("failed to process tokens\n")
 	}

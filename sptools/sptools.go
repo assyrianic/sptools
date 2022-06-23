@@ -61,11 +61,12 @@ func loadFile(filename string) (string, string) {
 const (
 	LEXFLAG_PREPROCESS    = (1 << iota)
 	LEXFLAG_STRIPCOMMENTS = (1 << iota)
+	LEXFLAG_NEWLINES      = (1 << iota)
 	LEXFLAG_ALL           = -1
 )
 
 // Lexes and preprocesses a file, returning its token array.
-func LexFile(filename string, flags int) ([]Token, bool) {
+func LexFile(filename string, flags int, macros map[string]Macro) ([]Token, bool) {
 	var tokens []Token
 	code, err_str := loadFile(filename)
 	if len(code) <= 0 {
@@ -74,9 +75,18 @@ func LexFile(filename string, flags int) ([]Token, bool) {
 	}
 	
 	tokens = Tokenize(code, filename)
+	return finishLexing(tokens, flags, macros)
+}
+
+func LexCodeString(code string, flags int, macros map[string]Macro) ([]Token, bool) {
+	tokens := Tokenize(code, "")
+	return finishLexing(tokens, flags, macros)
+}
+
+func finishLexing(tokens []Token, flags int, macros map[string]Macro) ([]Token, bool) {
 	if flags & LEXFLAG_PREPROCESS > 0 {
-		if output, res := Preprocess(tokens); res {
-			output = StripNewlineTokens(output)
+		if output, res := Preprocess(tokens, flags, macros); res {
+			output = StripSpaceTokens(output, flags & LEXFLAG_NEWLINES > 0)
 			tokens = output
 		} else {
 			return tokens, false
@@ -91,15 +101,28 @@ func LexFile(filename string, flags int) ([]Token, bool) {
 
 
 func ParseTokens(tokens []Token) Node {
-	parser := Parser{ tokens: tokens }
+	parser := Parser{ TokenReader: MakeTokenReader(tokens) }
 	return parser.Start()
 }
 
 
-func ParseFile(filename string, flags int) Node {
-	if tokens, result := LexFile(filename, flags); !result {
+func ParseFile(filename string, flags int, macros map[string]Macro) Node {
+	if tokens, result := LexFile(filename, flags, macros); !result {
 		return nil
 	} else {
 		return ParseTokens(tokens)
 	}
+}
+
+func ParseString(code string, flags int, macros map[string]Macro) Node {
+	tokens := Tokenize(code, "")
+	output := finishLexing(tokens, flags, macros)
+	return ParseTokens(output)
+}
+
+func Ternary[T any](cond bool, a, b T) T {
+	if cond {
+		return a
+	}
+	return b
 }

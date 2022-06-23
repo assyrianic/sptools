@@ -34,39 +34,21 @@ func copyPosToNode(n *node, t Token) {
 
 
 type Parser struct {
-	tokens []Token
+	TokenReader
 	Errs   []string
-	idx      int
 }
 
 func (parser *Parser) GetToken(offset int) Token {
-	tlen := len(parser.tokens)
-	index := parser.idx + offset
-	if index >= tlen || index < 0 {
-		return parser.tokens[tlen - 1]
-	}
-	
-	if t := parser.tokens[index]; t.Kind==TKNewline || t.Kind==TKComment {
-		parser.Advance(1)
-		return parser.GetToken(offset)
-	}
-	return parser.tokens[index]
+	return parser.TokenReader.Get(offset, true, true)
 }
 
 func (parser *Parser) Advance(i int) Token {
-	parser.idx += i
+	parser.TokenReader.Advance(i)
 	return parser.GetToken(0)
 }
 
 func (parser *Parser) HasTokenKindSeq(kinds ...TokenKind) bool {
-	matched := true
-	for i := range kinds {
-		if parser.GetToken(i).Kind != kinds[i] {
-			matched = false
-			break
-		}
-	}
-	return matched
+	return parser.TokenReader.HasTokenKindSeq(true, true, kinds...)
 }
 
 // REMEMBER, this auto-increments the token index if it matches.
@@ -959,7 +941,7 @@ func (parser *Parser) DoBlock() Stmt {
 	block := new(BlockStmt)
 	///fmt.Printf("starting tok: %v\n", parser.GetToken(0))
 	parser.want(TKLCurl, "{")
-	copyPosToNode(&block.node, parser.tokens[parser.idx-1])
+	copyPosToNode(&block.node, parser.GetToken(-1))
 	for t := parser.GetToken(0); t.Kind != TKRCurl && t.Kind != TKEoF; t = parser.GetToken(0) {
 		///time.Sleep(100 * time.Millisecond)
 		///fmt.Printf("current tok: %v\n", t)
@@ -1146,7 +1128,7 @@ func (parser *Parser) DoIf() Stmt {
 	///defer fmt.Printf("parser.DoIf()\n")
 	parser.want(TKIf, "if")
 	ifstmt := new(IfStmt)
-	copyPosToNode(&ifstmt.node, parser.tokens[parser.idx-1])
+	copyPosToNode(&ifstmt.node, parser.GetToken(-1))
 	parser.want(TKLParen, "(")
 	ifstmt.Cond = parser.MainExpr()
 	parser.want(TKRParen, ")")
@@ -1177,7 +1159,7 @@ func (parser *Parser) DoFor() Stmt {
 	///defer fmt.Printf("parser.DoFor()\n")
 	parser.want(TKFor, "for")
 	forstmt := new(ForStmt)
-	copyPosToNode(&forstmt.node, parser.tokens[parser.idx-1])
+	copyPosToNode(&forstmt.node, parser.GetToken(-1))
 	parser.want(TKLParen, "(")
 	if parser.GetToken(0).Kind != TKSemi {
 		if t := parser.GetToken(0); t.IsType() || t.IsStorageClass() || (t.Kind==TKIdent && parser.GetToken(1).Kind==TKIdent) {
@@ -1437,7 +1419,7 @@ func (parser *Parser) SubMainExpr() Expr {
 // TernaryExpr = '?' LogicalOrExpr ':' Expr .
 func (parser *Parser) DoTernary(a Expr) Expr {
 	///defer fmt.Printf("parser.DoTernary()\n")
-	tk := parser.tokens[parser.idx]
+	tk := parser.GetToken(0)
 	t := new(TernaryExpr)
 	copyPosToNode(&t.node, tk)
 	t.A = a
@@ -1721,7 +1703,7 @@ func (parser *Parser) ViewAsExpr() Expr {
 	///defer fmt.Printf("parser.ViewAsExpr()\n")
 	view_as := new(ViewAsExpr)
 	parser.want(TKViewAs, "view_as")
-	copyPosToNode(&view_as.node, parser.tokens[parser.idx - 1])
+	copyPosToNode(&view_as.node, parser.GetToken(-1))
 	view_as.Type = parser.TypeExpr(true)
 	parser.want(TKLParen, "(")
 	view_as.X = parser.MainExpr()
@@ -1819,7 +1801,7 @@ func (parser *Parser) PostfixExpr() Expr {
 // BoolLit = 'true' | 'false' .
 // BasicLit = int_lit | rune_lit | string_lit .
 // BracketExpr = '{' ExprList '}' .
-// Primary = BasicLit | identifier | BoolLit | 'this' | 'null' | '...' | '(' Expr ')' | BracketExpr .
+// Primary = BasicLit | identifier | 'operator' op | BoolLit | 'this' | 'null' | '...' | '(' Expr ')' | BracketExpr .
 func (parser *Parser) PrimaryExpr() Expr {
 	///defer fmt.Printf("parser.PrimaryExpr()\n")
 	ret_expr := Expr(nil)
@@ -1852,7 +1834,7 @@ func (parser *Parser) PrimaryExpr() Expr {
 			parser.Advance(1)
 			brktexpr.Exprs = parser.ExprList(TKRCurl, TKComma, true)
 			ret_expr = brktexpr
-		case TKOperator:
+		case TKOperator: // operator# like operator% or operator+
 			operator := prim.Lexeme
 			operator += parser.GetToken(1).Lexeme
 			parser.Advance(1)
@@ -1914,7 +1896,7 @@ func (parser *Parser) PrimaryExpr() Expr {
 }
 
 func printTabs(c rune, tabs int, w io.Writer) {
-	for i:=0; i < tabs; i++ {
+	for i := 0; i < tabs; i++ {
 		fmt.Fprintf(w, "%c%c", c, c)
 	}
 }
