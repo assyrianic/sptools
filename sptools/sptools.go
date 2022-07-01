@@ -59,43 +59,52 @@ func loadFile(filename string) (string, string) {
 
 
 const (
-	LEXFLAG_PREPROCESS    = (1 << iota)
-	LEXFLAG_STRIPCOMMENTS = (1 << iota)
-	LEXFLAG_NEWLINES      = (1 << iota)
-	LEXFLAG_ALL           = -1
+	// Runs preprocessor.
+	LEXFLAG_PREPROCESS     = (1 << iota)
+	
+	// Self explanatory, strips out all comment tokens.
+	LEXFLAG_STRIP_COMMENTS = (1 << iota)
+	
+	// Keeps newlines.
+	LEXFLAG_NEWLINES       = (1 << iota)
+	
+	// Adds #include <sourcemod> automatically.
+	LEXFLAG_SM_INCLUDE     = (1 << iota)
+	
+	// Enable ALL the above flags.
+	LEXFLAG_ALL            = -1
 )
 
 // Lexes and preprocesses a file, returning its token array.
 func LexFile(filename string, flags int, macros map[string]Macro) ([]Token, bool) {
-	var tokens []Token
 	code, err_str := loadFile(filename)
 	if len(code) <= 0 {
 		writeMsg(nil, os.Stdout, "sptools", "IO error", COLOR_RED, nil, nil, "file error:: '%s'.", err_str)
-		return tokens, false
+		return []Token{}, false
 	}
-	
-	tokens = Tokenize(code, filename)
-	return finishLexing(tokens, flags, macros)
+	if flags & LEXFLAG_SM_INCLUDE > 0 {
+		code = "#include <sourcemod>\n" + code
+	}
+	return finishLexing(Tokenize(code, filename), flags, macros)
 }
 
 func LexCodeString(code string, flags int, macros map[string]Macro) ([]Token, bool) {
-	tokens := Tokenize(code, "")
-	return finishLexing(tokens, flags, macros)
+	return finishLexing(Tokenize(code, ""), flags, macros)
 }
 
 func finishLexing(tokens []Token, flags int, macros map[string]Macro) ([]Token, bool) {
 	if flags & LEXFLAG_PREPROCESS > 0 {
 		if output, res := Preprocess(tokens, flags, macros); res {
-			output = StripSpaceTokens(output, flags & LEXFLAG_NEWLINES > 0)
 			tokens = output
 		} else {
 			return tokens, false
 		}
 	}
 	tokens = ConcatStringLiterals(tokens)
-	if flags & LEXFLAG_STRIPCOMMENTS > 0 {
+	if flags & LEXFLAG_STRIP_COMMENTS > 0 {
 		tokens = RemoveComments(tokens)
 	}
+	tokens = StripSpaceTokens(tokens, flags & LEXFLAG_NEWLINES > 0)
 	return tokens, true
 }
 
@@ -115,10 +124,13 @@ func ParseFile(filename string, flags int, macros map[string]Macro) Node {
 }
 
 func ParseString(code string, flags int, macros map[string]Macro) Node {
-	tokens := Tokenize(code, "")
-	output := finishLexing(tokens, flags, macros)
-	return ParseTokens(output)
+	output, good := finishLexing(Tokenize(code, ""), flags, macros)
+	if good {
+		return ParseTokens(output)
+	}
+	return nil
 }
+
 
 func Ternary[T any](cond bool, a, b T) T {
 	if cond {

@@ -181,7 +181,6 @@ const (
 	TKPPElseIf
 	TKPPEndIf
 	TKPPEndInput
-	TKPPEndScript
 	TKPPErr
 	TKPPWarn
 	TKPPInclude
@@ -350,9 +349,10 @@ var (
 		"#if": TKPPIf,
 		"#else": TKPPElse,
 		"#elif": TKPPElseIf,
+		"#elseif": TKPPElseIf,
 		"#endif": TKPPEndIf,
 		"#endinput": TKPPEndInput,
-		"#endscript": TKPPEndScript,
+		"#endscript": TKPPEndInput,
 		"#error": TKPPErr,
 		"#warning": TKPPWarn,
 		"#include": TKPPInclude,
@@ -517,10 +517,9 @@ var (
 		TKPPAssert: "#assert",
 		TKPPDefine: "#define",
 		TKPPElse: "#else",
-		TKPPElseIf: "#elif",
+		TKPPElseIf: "#elseif",
 		TKPPEndIf: "#endif",
 		TKPPEndInput: "#endinput",
-		TKPPEndScript: "#endscript",
 		TKPPErr: "#error",
 		TKPPWarn: "#warning",
 		TKPPIf: "#if",
@@ -643,8 +642,15 @@ func (tok Token) String() string {
 	}
 }
 
+func (tok Token) KindToString() string {
+	if tok.Kind < TKComment || tok.Kind >= TKMaxTokens {
+		return "invalid-token"
+	}
+	return TokenToStr[tok.Kind]
+}
+
 func (tok Token) ToString() string {
-	return fmt.Sprintf("Token:: %q - line: '%d', col: '%d' | file: %q", tok.String(), tok.Line, tok.Col, *tok.Path)
+	return fmt.Sprintf("Token:: lexeme: %q | kind: %q | line: '%d', col: '%d' | file: %q", tok.Lexeme, TokenToStr[tok.Kind], tok.Line, tok.Col, *tok.Path)
 }
 
 
@@ -654,19 +660,32 @@ type TokenReader struct {
 }
 
 func MakeTokenReader(tokens []Token) TokenReader {
-	return TokenReader{ Tokens: tokens }
+	return TokenReader{ Tokens: tokens, Idx: 0 }
 }
 
-func (tr *TokenReader) Get(offset int, ignore_ws, ignore_comments bool) Token {
+const (
+	TOKFLAG_IGNORE_NEWLINE = (1 << iota)
+	TOKFLAG_IGNORE_TAB     = (1 << iota)
+	TOKFLAG_IGNORE_SPACE   = (1 << iota)
+	TOKFLAG_IGNORE_COMMENT = (1 << iota)
+	TOKFLAG_IGNORE_ALL     = -1
+)
+func (tr *TokenReader) Get(offset, ignore_flag int) Token {
 	index := tr.Idx + offset
 	if tlen := tr.Len(); index >= tlen || index < 0 {
 		return tr.Tokens[tlen - 1]
 	}
 	
 	t := tr.Tokens[index]
-	if (ignore_ws && (t.Kind==TKNewline || t.Kind==TKSpace || t.Kind==TKTab)) || (ignore_comments && t.Kind==TKComment) {
+	ignore_table := [4]int{
+		0: TOKFLAG_IGNORE_COMMENT,
+		1: TOKFLAG_IGNORE_NEWLINE,
+		2: TOKFLAG_IGNORE_SPACE,
+		3: TOKFLAG_IGNORE_TAB,
+	}
+	if (t.Kind >= TKComment && t.Kind <= TKTab) && ignore_flag & ignore_table[t.Kind-1] > 0 {
 		tr.Advance(1)
-		return tr.Get(offset, ignore_ws, ignore_comments)
+		return tr.Get(offset, ignore_flag)
 	}
 	return t
 }
@@ -678,10 +697,10 @@ func (tr *TokenReader) Advance(i int) {
 	tr.Idx += i
 }
 
-func (tr *TokenReader) HasTokenKindSeq(ignore_ws, ignore_comments bool, kinds ...TokenKind) bool {
+func (tr *TokenReader) HasTokenKindSeq(ignore_flag int, kinds ...TokenKind) bool {
 	matched := true
 	for i := range kinds {
-		if tr.Get(i, ignore_ws, ignore_comments).Kind != kinds[i] {
+		if tr.Get(i, ignore_flag).Kind != kinds[i] {
 			matched = false
 			break
 		}
@@ -697,8 +716,9 @@ func (tr *TokenReader) Len() int {
 	return len(tr.Tokens)
 }
 
+// does NOT skip whitespace or comments.
 func (tr *TokenReader) SkipTokenKinds(kinds ...TokenKind) {
-	for t := tr.Get(0, false, false); t.Kind != TKEoF; t = tr.Get(0, false, false) {
+	for t := tr.Get(0, 0); t.Kind != TKEoF; t = tr.Get(0, 0) {
 		got_something := false
 		for i := range kinds {
 			if t.Kind==kinds[i] {
@@ -712,7 +732,15 @@ func (tr *TokenReader) SkipTokenKinds(kinds ...TokenKind) {
 		}
 	}
 }
+/*
+func (tr *TokenReader) SubsetTokens(lower int) []Token {
+	
+}
 
+func (tr *TokenReader) MakeReaderFromSubset(lower int) TokenReader {
+	return MakeTokenReader(tr.SubsetTokens(lower))
+}
+*/
 
 type Scanner struct {
 	runes       []rune
@@ -1224,12 +1252,12 @@ func Tokenize(src, filename string) []Token {
 				for isIden(s.Read(0)) {
 					s.idx++
 				}
-				lexeme := string(s.runes[starting : s.idx])
-				if kind, found := Keywords["#" + lexeme]; found {
+				lexeme := "#" + string(s.runes[starting : s.idx])
+				if kind, found := Keywords[lexeme]; found {
 					tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: col, Kind: kind})
 					in_preproc = true
 					switch lexeme {
-					case "error", "warning", "pragma":
+					case "#error", "#warning", "#pragma":
 						s.SkipSpace()
 						starting := s.idx
 						for s.Read(0) != 0 && s.Read(0) != '\n' {
@@ -1238,12 +1266,12 @@ func Tokenize(src, filename string) []Token {
 						msg := string(s.runes[starting : s.idx])
 						if len(msg)==0 {
 							col := s.Col()
-							writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "#%s directive is missing message argument.", lexeme)
+							writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "'%s' directive is missing message argument.", lexeme)
 							goto errored_return
 						}
 						tokens = append(tokens, Token{Lexeme: msg, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKStrLit})
 					/**
-					case "include", "tryinclude":
+					case "#include", "#tryinclude":
 						s.SkipSpace()
 						starting := s.idx
 						for s.Read(0) != 0 && !unicode.IsSpace(s.Read(0)) {
@@ -1253,7 +1281,7 @@ func Tokenize(src, filename string) []Token {
 						tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKStrLit})*/
 					}
 				} else {
-					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "unknown preprocessor directive: '%s'", "#" + lexeme)
+					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "unknown preprocessor directive: '%s'", lexeme)
 					goto errored_return
 				}
 			} else if in_preproc && s.Read(1)=='%' && unicode.IsNumber(s.Read(2)) {
@@ -1314,6 +1342,7 @@ errored_return:
 	return tokens
 }
 
+
 func ConcatStringLiterals(tokens []Token) []Token {
 	num_tokens := len(tokens)
 	for i := 0; i < num_tokens; i++ {
@@ -1329,10 +1358,10 @@ func ConcatStringLiterals(tokens []Token) []Token {
 	return tokens
 }
 
-func StripSpaceTokens(tokens []Token, leave_newlines bool) []Token {
-	i, num_tokens := len(tokens), 0
+func StripSpaceTokens(tokens []Token, allow_newlines bool) []Token {
+	i, num_tokens := 0, len(tokens)
 	for i < num_tokens {
-		if t := tokens[i]; (!leave_newlines && t.Kind==TKNewline) || t.Kind==TKSpace || t.Kind==TKTab {
+		if t := tokens[i]; t.Kind==TKSpace || t.Kind==TKTab || (!allow_newlines && t.Kind==TKNewline) {
 			tokens = append(tokens[:i], tokens[i+1:]...)
 			num_tokens = len(tokens)
 			i = 0
@@ -1344,7 +1373,7 @@ func StripSpaceTokens(tokens []Token, leave_newlines bool) []Token {
 }
 
 func RemoveComments(tokens []Token) []Token {
-	i, num_tokens := len(tokens), 0
+	i, num_tokens := 0, len(tokens)
 	for i < num_tokens {
 		if tokens[i].Kind==TKComment {
 			tokens = append(tokens[:i], tokens[i+1:]...)

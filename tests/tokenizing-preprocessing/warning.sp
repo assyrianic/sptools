@@ -7,5 +7,7 @@ ghijklmnop
 
 #define kek(%1, %2) %1%%2 % 2
 
+kek(zero, one)
+
 "lol\
 sads"

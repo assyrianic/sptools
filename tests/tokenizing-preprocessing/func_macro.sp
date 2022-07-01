@@ -70,3 +70,4 @@ CREATE_NATIVE(SubPlugins);
 #define FF2_RESOLVE_FUNC(%0)	static stock void FF2Resolve_%0(ArrayList delete_list, const ConfigMapAllocator cfg, char[] key, int len)
 
 INVALID_FF2PLAYER
+FF2_RESOLVE_FUNC(kektus)

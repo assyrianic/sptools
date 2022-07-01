@@ -26,6 +26,7 @@
 #if defined _cfgmap_included
 	#endinput
 #endif
+
 #define _cfgmap_included
 
 #include "expressions.sp"
