@@ -116,6 +116,10 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 					for _, g := range args[param] {
 						new_ident.Lexeme += g.Lexeme
 					}
+					if n+1 < macro_len && m.Body[n+1].Kind==TKIdent {
+						new_ident.Lexeme += m.Body[n+1].Lexeme
+						n++
+					}
 					///fmt.Printf("Apply :: func-like Macro - Pasting new ident: '%s'\n", new_ident.Lexeme)
 					output = append(output, new_ident)
 				}

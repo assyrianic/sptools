@@ -516,13 +516,13 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 	case nil:
 		fmt.Fprintf(w, "nil Node\n")
 	case *BadStmt:
-		fmt.Fprintf(w, "Bad Stmt Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
+		fmt.Fprintf(w, "Bad/Errored Stmt Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
 	case *BadExpr:
-		fmt.Fprintf(w, "Bad Expr Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
+		fmt.Fprintf(w, "Bad/Errored Expr Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
 	case *BadSpec:
-		fmt.Fprintf(w, "Bad Spec Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
+		fmt.Fprintf(w, "Bad/Errored Spec Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
 	case *BadDecl:
-		fmt.Fprintf(w, "Bad Decl Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
+		fmt.Fprintf(w, "Bad/Errored Decl Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
 	case *NullExpr:
 		fmt.Fprintf(w, "'null' expr\n")
 	case *BasicLit:

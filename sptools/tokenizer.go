@@ -1171,7 +1171,7 @@ func Tokenize(src, filename string) []Token {
 				s.line++
 				s.start = s.idx
 			}
-			tokens = append(tokens, Token{Lexeme: "\\", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKBackSlash})
+			//tokens = append(tokens, Token{Lexeme: "\\", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKBackSlash})
 		} else if unicode.IsLetter(c) || c=='_' {
 			// handle identifiers & keywords.
 			col, starting := s.Col(), s.idx
