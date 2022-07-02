@@ -4,9 +4,9 @@ import (
 	"os"
 	"fmt"
 	"strings"
-	///"time"
 	"strconv"
 	"path/filepath"
+	///"time"
 )
 
 
@@ -66,6 +66,7 @@ func MakeObjMacro(tr *TokenReader) Macro {
 	return m
 }
 
+
 func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 	var output []Token
 	name := tr.Get(0, TOKFLAG_IGNORE_ALL)
@@ -78,11 +79,22 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 		tr.Advance(1) // advance past (.
 		args, num_arg := make(map[int][]Token), 0
 		tr.SkipTokenKinds(TKSpace, TKTab)
+		nested_parens := 0
 		for t := tr.Get(0, TOKFLAG_IGNORE_ALL); t.Kind != TKRParen; t = tr.Get(0, TOKFLAG_IGNORE_ALL) {
 			for t.Kind != TKComma && t.Kind != TKRParen {
+				// PATCH: WhiteFalcon -- Nested parentheses not properly substituted.
+				if t.Kind==TKLParen {
+					nested_parens++
+				}
 				args[num_arg] = append(args[num_arg], t)
 				tr.Advance(1)
 				t = tr.Get(0, TOKFLAG_IGNORE_ALL)
+				if t.Kind==TKRParen && nested_parens != 0 {
+					nested_parens--
+					args[num_arg] = append(args[num_arg], t)
+					tr.Advance(1)
+					t = tr.Get(0, TOKFLAG_IGNORE_ALL)
+				}
 			}
 			///fmt.Printf("Apply :: func-like Macro -> arg['%v']=='%v'\n", num_arg, args[num_arg])
 			if t.Kind==TKComma {
@@ -90,7 +102,7 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 			}
 			num_arg++
 		}
-		if t := tr.Get(0, TOKFLAG_IGNORE_ALL); t.Kind==TKRParen {
+		if tr.Get(0, TOKFLAG_IGNORE_ALL).Kind==TKRParen {
 			tr.Advance(1)
 		}
 		if len(m.Params) != len(args) {
@@ -105,18 +117,19 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 				// line substitution.
 				line_str := fmt.Sprintf("%d", x.Line)
 				output = append(output, Token{Lexeme: line_str, Path: x.Path, Line: x.Line, Col: x.Col, Kind: TKIntLit})
-			} else if x.Kind==TKIdent && n+1 < macro_len && m.Body[n+1].Kind==TKMacroArg {
+			} else if (x.Kind==TKIdent || x.Kind==TKIntLit) && n+1 < macro_len && m.Body[n+1].Kind==TKMacroArg {
+				kind := x.Kind
 				macro_arg := m.Body[n+1]
 				n++
 				// token pasting.
 				///fmt.Printf("Apply :: func-like Macro - Pasting Macro: '%s' + '%s'\n", x.Lexeme, macro_arg.Lexeme)
 				if param, found := m.Params[macro_arg.Lexeme]; found {
-					new_ident := Token{ Path: args[param][0].Path, Line: args[param][0].Line, Col: args[param][0].Col, Kind: TKIdent }
+					new_ident := Token{ Path: args[param][0].Path, Line: args[param][0].Line, Col: args[param][0].Col, Kind: kind }
 					new_ident.Lexeme += x.Lexeme
 					for _, g := range args[param] {
 						new_ident.Lexeme += g.Lexeme
 					}
-					if n+1 < macro_len && m.Body[n+1].Kind==TKIdent {
+					if n+1 < macro_len && (m.Body[n+1].Kind==TKIdent || m.Body[n+1].Kind==TKIntLit) {
 						new_ident.Lexeme += m.Body[n+1].Lexeme
 						n++
 					}
@@ -127,8 +140,19 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 				// token substitution.
 				///fmt.Printf("Apply :: func-like Macro - x.Lexeme Macro: '%s'\n", x.Lexeme)
 				if param, found := m.Params[x.Lexeme]; found {
-					///fmt.Printf("Apply :: replacing func-like Macro - param (%d) of that Macro: '%v'\n", param, args[param])
-					output = append(output, args[param]...)
+					if n+1 < macro_len && (m.Body[n+1].Kind==TKIdent || m.Body[n+1].Kind==TKIntLit) {
+						kind := m.Body[n+1].Kind
+						new_ident := Token{ Path: args[param][0].Path, Line: args[param][0].Line, Col: args[param][0].Col, Kind: kind }
+						for _, g := range args[param] {
+							new_ident.Lexeme += g.Lexeme
+						}
+						new_ident.Lexeme += m.Body[n+1].Lexeme
+						n++
+						output = append(output, new_ident)
+					} else {
+						///fmt.Printf("Apply :: replacing func-like Macro - param (%d) of that Macro: '%v'\n", param, args[param])
+						output = append(output, args[param]...)
+					}
 				}
 			} else if x.Kind==TKHashTok {
 				// token stringification.
@@ -553,7 +577,7 @@ func preprocess(tr *TokenReader, ifStack condInclStack, macros map[string]Macro,
 				t2 := tr.Get(0, TOKFLAG_IGNORE_ALL)
 				tr.Advance(1)
 				writeMsg(nil, os.Stdout, *t2.Path, "user warning", COLOR_MAGENTA, &t2.Line, &t2.Col, "%s.", t2.Lexeme)
-			case TKPPLine, TKPPPragma:
+			case TKPPLine, TKPPPragma, TKPPFile:
 				// skipping this for now.
 				skipToNextLine(tr)
 			case TKPPEndInput:
@@ -591,13 +615,44 @@ func preprocess(tr *TokenReader, ifStack condInclStack, macros map[string]Macro,
 			case TKPPInclude, TKPPTryInclude:
 				tr.Advance(1) // advance past the directive.
 				is_optional := t.Kind==TKPPTryInclude
-				inc_file := ""
+				inc_file, filetext, read_err := "", "", ""
 				t2 := tr.Get(0, TOKFLAG_IGNORE_ALL)
 				if t2.Kind==TKStrLit {
-					// local file
-					inc_file = t2.Lexeme
 					tr.Advance(1)
+					// local file
+					if dir := filepath.Dir(*t2.Path); dir != "." {
+						for dir != "." {
+							inc_file = dir + string(filepath.Separator) + t2.Lexeme
+							///fmt.Printf("inc_file loop: '%s'\n", inc_file)
+							filetext, read_err = loadFile(inc_file)
+							if filetext != "" {
+								break
+							} else {
+								dir = filepath.Dir(dir)
+							}
+						}
+					} else {
+						inc_file = t2.Lexeme
+						///fmt.Printf("inc_file: '%s'\n", inc_file)
+						filetext, read_err = loadFile(inc_file)
+						if filetext != "" {
+							break
+						}
+					}
+					/*
+					 * Github Issue #5 - GammaCase
+					 * when "" are used, it tries to lookup the file, relative to the .sp file first, and if it fails, it should fall back to include folders search as with <>, and that's where the difference with the original spcomp is, as currently it doesn't try to scan include folders as a fall back option.
+					 */
+					if filetext=="" {
+						filedir := "include/" + t2.Lexeme
+						filetext, read_err = loadFile(filedir)
+					}
+					if filetext=="" && !is_optional {
+						writeMsg(nil, os.Stdout, *t2.Path, "inclusion error", COLOR_RED, &t2.Line, &t2.Col, "couldn't find file '%s'.", inc_file)
+						return output, false
+					}
 				} else {
+					// treat as include file.
 					var str_path strings.Builder
 					str_path.WriteString("include/")
 					tr.Advance(1) // advance past the '<'.
@@ -608,22 +663,17 @@ func preprocess(tr *TokenReader, ifStack condInclStack, macros map[string]Macro,
 					tr.Advance(1)
 					str_path.WriteString(".inc")
 					inc_file = str_path.String()
-				}
-				
-				filetext, read_err := loadFile(inc_file)
-				if filetext=="" {
-					filedir := filepath.Dir(*t2.Path)
-					filetext, read_err = loadFile(filedir + string(filepath.Separator) + inc_file)
-				}
-				if filetext=="" && !is_optional {
-					writeMsg(nil, os.Stdout, *t2.Path, "inclusion error", COLOR_RED, &t2.Line, &t2.Col, "couldn't find file '%s'.", inc_file)
-					return output, false
+					filetext, read_err = loadFile(inc_file)
+					if filetext=="" && !is_optional {
+						writeMsg(nil, os.Stdout, *t2.Path, "inclusion error", COLOR_RED, &t2.Line, &t2.Col, "couldn't find include file '%s'.", inc_file)
+						return output, false
+					}
 				}
 				
 				inc_tokens := Tokenize(filetext, inc_file)
 				include_tr := MakeTokenReader(inc_tokens)
 				if preprocd, res := preprocess(&include_tr, ifStack, macros, flags); !res {
-					writeMsg(nil, os.Stdout, *t2.Path, "inclusion error", COLOR_RED, &t2.Line, &t2.Col, "failed to preprocess '%s' -- read error: '%s'.", inc_file, read_err)
+					writeMsg(nil, os.Stdout, *t2.Path, "inclusion error", COLOR_RED, &t2.Line, &t2.Col, "failed to preprocess '%s' -- read error?: '%s'.", inc_file, read_err)
 					return output, false
 				} else {
 					preprocd = StripSpaceTokens(preprocd, flags & LEXFLAG_NEWLINES > 0)
