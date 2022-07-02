@@ -71,3 +71,8 @@ CREATE_NATIVE(SubPlugins);
 
 INVALID_FF2PLAYER
 FF2_RESOLVE_FUNC(kektus)
+
+#define A(%1) %12
+
+// should be 102
+A(10)

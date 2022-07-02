@@ -173,7 +173,7 @@ const (
 	TKWith
 	
 	// preproc keywords
-	// #assert #define #if #else #elseif #endif #endinput #endscript #error #warning #include #line #pragma #tryinclude #undef
+	// #assert #define #if #else #elseif #endif #endinput #endscript #error #warning #include #line #pragma #tryinclude #file #undef
 	TKPPAssert
 	TKPPDefine
 	TKPPIf
@@ -187,6 +187,7 @@ const (
 	TKPPLine
 	TKPPPragma
 	TKPPTryInclude
+	TKPPFile
 	TKPPUndef
 	
 	// delimiters
@@ -359,6 +360,7 @@ var (
 		"#line": TKPPLine,
 		"#pragma": TKPPPragma,
 		"#tryinclude": TKPPTryInclude,
+		"#file": TKPPFile,
 		"#undef": TKPPUndef,
 	}
 	Opers = map[string]TokenKind {
@@ -527,6 +529,7 @@ var (
 		TKPPLine: "#line",
 		TKPPPragma: "#pragma",
 		TKPPTryInclude: "#tryinclude",
+		TKPPFile: "#file",
 		TKPPUndef: "#undef",
 		TKHash: "#",
 		
@@ -1286,31 +1289,15 @@ func Tokenize(src, filename string) []Token {
 				}
 			} else if in_preproc && s.Read(1)=='%' && unicode.IsNumber(s.Read(2)) {
 				s.idx += 2
-				if lexeme, res, is_float := s.LexDecimal(); !res {
-					col := s.Col()
-					writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "failed to tokenize number for token pasting.")
-					goto errored_return
-				} else if is_float {
-					col := s.Col()
-					writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "cannot use float numeral for macro arg.")
-					goto errored_return
-				} else {
-					tokens = append(tokens, Token{Lexeme: "#%" + lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKHashTok})
-				}
+				lexeme := string(s.Read(0))
+				s.idx++
+				tokens = append(tokens, Token{Lexeme: "#%" + lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKHashTok})
 			}
 		} else if in_preproc && c=='%' && unicode.IsNumber(s.Read(1)) {
 			s.idx++
-			if lexeme, res, is_float := s.LexDecimal(); !res {
-				col := s.Col()
-				writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "failed to tokenize number for token pasting.")
-				goto errored_return
-			} else if is_float {
-				col := s.Col()
-				writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "cannot use float numeral for macro arg.")
-				goto errored_return
-			} else {
-				tokens = append(tokens, Token{Lexeme: "%" + lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKMacroArg})
-			}
+			lexeme := string(s.Read(0))
+			s.idx++
+			tokens = append(tokens, Token{Lexeme: "%" + lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKMacroArg})
 		} else {
 			col, starting, starting_line := s.Col(), s.idx, s.line
 			oper_size, oper_key, got_match := 0, "", false
