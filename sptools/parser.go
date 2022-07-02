@@ -930,8 +930,8 @@ func (parser *Parser) DoTernary(a Expr) Expr {
 	t := new(TernaryExpr)
 	copyPosToNode(&t.node, tk)
 	t.A = a
-	parser.Advance(1)
-	t.B = parser.LogicalOrExpr()
+	parser.Advance(1) // advance past question mark.
+	t.B = parser.SubMainExpr()
 	parser.want(TKColon, ":")
 	t.C = parser.MainExpr()
 	return t

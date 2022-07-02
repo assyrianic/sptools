@@ -8,6 +8,8 @@ public stock native SharedPlugin __pl_vsh2 = {
 #endif
 };
 
+int a = access ? blacklist > 0 ? "❎" : "☑" : "🔒";
+
 void InitNatives()
 {
 	/// Natives For FF2GameMode
