@@ -41,6 +41,7 @@ func (parser *Parser) syntaxErr(msg string, args ...any) {
 	parser.Errs = append(parser.Errs, str)
 }
 
+// TODO: allow newlines in place of semicolons.
 func (parser *Parser) want(tk TokenKind, lexeme string) bool {
 	if !parser.got(tk) {
 		parser.syntaxErr("expecting '%s' but got '%s'", lexeme, parser.GetToken(0).Lexeme)

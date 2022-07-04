@@ -910,186 +910,186 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 }
 
 
-func Walk(n Node, visitor func(Node) bool) {
-	if !visitor(n) {
+func Walk(n, parent Node, visitor func(n, parent Node) bool) {
+	if !visitor(n, parent) {
 		return
 	}
 	
 	switch ast := n.(type) {
 	case *CallExpr:
-		Walk(ast.Func, visitor)
+		Walk(ast.Func, n, visitor)
 		if ast.ArgList != nil {
 			for i := range ast.ArgList {
-				Walk(ast.ArgList[i], visitor)
+				Walk(ast.ArgList[i], n, visitor)
 			}
 		}
 	case *IndexExpr:
-		Walk(ast.X, visitor)
-		Walk(ast.Index, visitor)
+		Walk(ast.X, n, visitor)
+		Walk(ast.Index, n, visitor)
 	case *NameSpaceExpr:
-		Walk(ast.N, visitor)
-		Walk(ast.Id, visitor)
+		Walk(ast.N, n, visitor)
+		Walk(ast.Id, n, visitor)
 	case *FieldExpr:
-		Walk(ast.X, visitor)
-		Walk(ast.Sel, visitor)
+		Walk(ast.X, n, visitor)
+		Walk(ast.Sel, n, visitor)
 	case *UnaryExpr:
-		Walk(ast.X, visitor)
+		Walk(ast.X, n, visitor)
 	case *ViewAsExpr:
-		Walk(ast.Type, visitor)
-		Walk(ast.X, visitor)
+		Walk(ast.Type, n, visitor)
+		Walk(ast.X, n, visitor)
 	case *BinExpr:
-		Walk(ast.L, visitor)
-		Walk(ast.R, visitor)
+		Walk(ast.L, n, visitor)
+		Walk(ast.R, n, visitor)
 	case *TernaryExpr:
-		Walk(ast.A, visitor)
-		Walk(ast.B, visitor)
-		Walk(ast.C, visitor)
+		Walk(ast.A, n, visitor)
+		Walk(ast.B, n, visitor)
+		Walk(ast.C, n, visitor)
 	case *NamedArg:
-		Walk(ast.X, visitor)
+		Walk(ast.X, n, visitor)
 	case *CommaExpr:
 		for i := range ast.Exprs {
-			Walk(ast.Exprs[i], visitor)
+			Walk(ast.Exprs[i], n, visitor)
 		}
 	case *BracketExpr:
 		for i := range ast.Exprs {
-			Walk(ast.Exprs[i], visitor)
+			Walk(ast.Exprs[i], n, visitor)
 		}
 	case *RetStmt:
 		if ast.X != nil {
-			Walk(ast.X, visitor)
+			Walk(ast.X, n, visitor)
 		}
 	case *IfStmt:
-		Walk(ast.Cond, visitor)
-		Walk(ast.Then, visitor)
+		Walk(ast.Cond, n, visitor)
+		Walk(ast.Then, n, visitor)
 		if ast.Else != nil {
-			Walk(ast.Else, visitor)
+			Walk(ast.Else, n, visitor)
 		}
 	case *WhileStmt:
-		Walk(ast.Cond, visitor)
-		Walk(ast.Body, visitor)
+		Walk(ast.Cond, n, visitor)
+		Walk(ast.Body, n, visitor)
 	case *ForStmt:
 		if ast.Init != nil {
-			Walk(ast.Init, visitor)
+			Walk(ast.Init, n, visitor)
 		}
 		if ast.Cond != nil {
-			Walk(ast.Cond, visitor)
+			Walk(ast.Cond, n, visitor)
 		}
 		if ast.Post != nil {
-			Walk(ast.Post, visitor)
+			Walk(ast.Post, n, visitor)
 		}
-		Walk(ast.Body, visitor)
+		Walk(ast.Body, n, visitor)
 	case *ExprStmt:
-		Walk(ast.X, visitor)
+		Walk(ast.X, n, visitor)
 	case *BlockStmt:
 		for i := range ast.Stmts {
-			Walk(ast.Stmts[i], visitor)
+			Walk(ast.Stmts[i], n, visitor)
 		}
 	case *DeleteStmt:
-		Walk(ast.X, visitor)
+		Walk(ast.X, n, visitor)
 	case *SwitchStmt:
-		Walk(ast.Cond, visitor)
+		Walk(ast.Cond, n, visitor)
 		for i := range ast.Cases {
-			Walk(ast.Cases[i], visitor)
+			Walk(ast.Cases[i], n, visitor)
 		}
 		if ast.Default != nil {
-			Walk(ast.Default, visitor)
+			Walk(ast.Default, n, visitor)
 		}
 	case *CaseStmt:
-		Walk(ast.Case, visitor)
-		Walk(ast.Body, visitor)
+		Walk(ast.Case, n, visitor)
+		Walk(ast.Body, n, visitor)
 	case *AssertStmt:
-		Walk(ast.X, visitor)
+		Walk(ast.X, n, visitor)
 	case *StaticAssertStmt:
-		Walk(ast.A, visitor)
-		Walk(ast.B, visitor)
+		Walk(ast.A, n, visitor)
+		Walk(ast.B, n, visitor)
 	case *DeclStmt:
-		Walk(ast.D, visitor)
+		Walk(ast.D, n, visitor)
 	case *TypeSpec:
-		Walk(ast.Type, visitor)
+		Walk(ast.Type, n, visitor)
 	case *EnumSpec:
-		Walk(ast.Ident, visitor)
-		Walk(ast.Step, visitor)
+		Walk(ast.Ident, n, visitor)
+		Walk(ast.Step, n, visitor)
 		for i := range ast.Names {
-			Walk(ast.Names[i], visitor)
+			Walk(ast.Names[i], n, visitor)
 		}
 		for i := range ast.Values {
-			Walk(ast.Values[i], visitor)
+			Walk(ast.Values[i], n, visitor)
 		}
 	case *StructSpec:
-		Walk(ast.Ident, visitor)
+		Walk(ast.Ident, n, visitor)
 		for i := range ast.Fields {
-			Walk(ast.Fields[i], visitor)
+			Walk(ast.Fields[i], n, visitor)
 		}
 		for i := range ast.Methods {
-			Walk(ast.Methods[i], visitor)
+			Walk(ast.Methods[i], n, visitor)
 		}
 	case *UsingSpec:
-		Walk(ast.Namespace, visitor)
+		Walk(ast.Namespace, n, visitor)
 	case *SignatureSpec:
-		Walk(ast.Type, visitor)
+		Walk(ast.Type, n, visitor)
 		for i := range ast.Params {
-			Walk(ast.Params[i], visitor)
+			Walk(ast.Params[i], n, visitor)
 		}
 	case *TypeDefSpec:
-		Walk(ast.Ident, visitor)
-		Walk(ast.Sig, visitor)
+		Walk(ast.Ident, n, visitor)
+		Walk(ast.Sig, n, visitor)
 	case *TypeSetSpec:
-		Walk(ast.Ident, visitor)
+		Walk(ast.Ident, n, visitor)
 		for i := range ast.Signatures {
-			Walk(ast.Signatures[i], visitor)
+			Walk(ast.Signatures[i], n, visitor)
 		}
 	case *MethodMapSpec:
-		Walk(ast.Ident, visitor)
-		Walk(ast.Parent, visitor)
+		Walk(ast.Ident, n, visitor)
+		Walk(ast.Parent, n, visitor)
 		for i := range ast.Props {
-			Walk(ast.Props[i], visitor)
+			Walk(ast.Props[i], n, visitor)
 		}
 		for i := range ast.Methods {
-			Walk(ast.Methods[i], visitor)
+			Walk(ast.Methods[i], n, visitor)
 		}
 	case *MethodMapPropSpec:
-		Walk(ast.Type, visitor)
-		Walk(ast.Ident, visitor)
-		Walk(ast.GetterBlock, visitor)
+		Walk(ast.Type, n, visitor)
+		Walk(ast.Ident, n, visitor)
+		Walk(ast.GetterBlock, n, visitor)
 		for i := range ast.SetterParams {
-			Walk(ast.SetterParams[i], visitor)
+			Walk(ast.SetterParams[i], n, visitor)
 		}
-		Walk(ast.SetterBlock, visitor)
+		Walk(ast.SetterBlock, n, visitor)
 	case *MethodMapMethodSpec:
-		Walk(ast.Impl, visitor)
+		Walk(ast.Impl, n, visitor)
 	case *VarDecl:
-		Walk(ast.Type, visitor)
+		Walk(ast.Type, n, visitor)
 		for i := range ast.Names {
 			if ast.Names[i] != nil {
-				Walk(ast.Names[i], visitor)
+				Walk(ast.Names[i], n, visitor)
 			}
 		}
 		for i := range ast.Dims {
 			if ast.Dims[i] != nil {
 				for _, dim := range ast.Dims[i] {
-					Walk(dim, visitor)
+					Walk(dim, n, visitor)
 				}
 			}
 		}
 		for i := range ast.Inits {
 			if ast.Inits[i] != nil {
-				Walk(ast.Inits[i], visitor)
+				Walk(ast.Inits[i], n, visitor)
 			}
 		}
 	case *FuncDecl:
-		Walk(ast.RetType, visitor)
-		Walk(ast.Ident, visitor)
+		Walk(ast.RetType, n, visitor)
+		Walk(ast.Ident, n, visitor)
 		for i := range ast.Params {
-			Walk(ast.Params[i], visitor)
+			Walk(ast.Params[i], n, visitor)
 		}
 		if ast.Body != nil {
-			Walk(ast.Body, visitor)
+			Walk(ast.Body, n, visitor)
 		}
 	case *TypeDecl:
-		Walk(ast.Type, visitor)
+		Walk(ast.Type, n, visitor)
 	case *Plugin:
 		for i := range ast.Decls {
-			Walk(ast.Decls[i], visitor)
+			Walk(ast.Decls[i], n, visitor)
 		}
 	}
 }

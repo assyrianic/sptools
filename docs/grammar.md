@@ -16,7 +16,7 @@ ParamList = '(' *VarDecl ')' .
 FuncDeclarator = Ident ParamList ( Initializer | BlockStmt | ';' ) .
 
 StorageClass = 'native' | 'forward' | 'const' | 'static' | 'stock' | 'public' | 'private' | 'protected' | 'readonly' | 'sealed' | 'virtual' .
-AbstractDecl = Type [ *'[]' | '&' ] .
+AbstractDecl = Type [ +'[]' | '&' ] .
 
 VarOrFuncSpec = *StorageClass AbstractDecl .
 SignatureSpec = 'function' AbstractDecl ParamsList .
@@ -27,7 +27,7 @@ SignatureSpec = 'function' AbstractDecl ParamsList .
 EnumSpec = 'enum' [ ident [ ':' ] [ '(' operator PrimaryExpr ')' ] ] '{' +EnumEntry '}' [ ';' ] .
 EnumEntry = Ident [ '=' Expr ] .
 
-StructSpec = 'struct' Ident '{' *Field '}' [ ';' ] .
+StructSpec = [ 'enum' ] 'struct' Ident '{' *Field '}' [ ';' ] .
 Field = VarDecl ';' | FuncDecl .
 
 UsingSpec = 'using' Expr ';' .
@@ -59,7 +59,7 @@ WhileStmt = 'while' '(' Expr ')' Statement .
 
 IfStmt = 'if' '(' Expr ')' Statement [ 'else' Statement ] .
 
-ForStmt = 'for' '(' [ Decl | Expr ] ';' [ Expr ] ';' [ Expr ] ')' Statement .
+ForStmt = 'for' '(' [ VarDecl | Expr ] ';' [ Expr ] ';' [ Expr ] ')' Statement .
 
 SwitchStmt = 'switch' '(' Expr ')' '{' *CaseClause '}' .
 CaseClause = 'case' ExprList ':' Statement | 'default' ':' Statement .
