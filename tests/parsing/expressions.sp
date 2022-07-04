@@ -8,6 +8,11 @@ public stock native SharedPlugin __pl_vsh2 = {
 #endif
 };
 
+methodmap A
+{
+	public native void B();
+}
+
 int a = access ? blacklist > 0 ? "❎" : "☑" : "🔒";
 
 void InitNatives()

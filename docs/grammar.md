@@ -73,7 +73,7 @@ ExprStmt = Expr ';' .
 Expr = AssignExpr *( ',' AssignExpr ) .
 AssignExpr = SubMainExpr *( '['+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>' | '>>>' ] =' SubMainExpr ) .
 SubMainExpr = LogicalOrExpr [ TernaryExpr ] .
-TernaryExpr = '?' LogicalOrExpr ':' Expr .
+TernaryExpr = '?' SubMainExpr ':' Expr .
 
 LogicalOrExpr = LogicalAndExpr *( '||' LogicalAndExpr ) .
 LogicalAndExpr = EqualExpr *( '&&' EqualExpr ) .

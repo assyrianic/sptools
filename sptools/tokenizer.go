@@ -616,23 +616,23 @@ func (tok Token) IsPreprocDirective() bool {
 
 func (tok Token) IsType() bool {
 	switch tok.Kind {
-		case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
-			fallthrough
-		case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKVoid:
-			return true
-		default:
-			return false
+	case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
+		fallthrough
+	case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKVoid:
+		return true
+	default:
+		return false
 	}
 }
 
 func (tok Token) IsStorageClass() bool {
 	switch tok.Kind {
-		case TKConst, TKStock, TKPublic, TKPrivate, TKProtected, TKStatic:
-			fallthrough
-		case TKForward, TKNative, TKReadOnly, TKSealed, TKVirtual:
-			return true
-		default:
-			return false
+	case TKConst, TKStock, TKPublic, TKPrivate, TKProtected, TKStatic:
+		fallthrough
+	case TKForward, TKNative, TKReadOnly, TKSealed, TKVirtual:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -815,18 +815,18 @@ func (s *Scanner) LexBinary() (string, bool) {
 	s.idx += 2
 	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', DigitSep:
-				s.idx++
-			case '-':
-				if !unicode.IsNumber(s.Read(1)) {
-					return string(s.runes[start : s.idx]), false
-				}
-				s.idx++
-			default:
-				col := s.Col()
-				s.idx = start
-				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in binary literal", chr)
-				return "", false
+		case '0', '1', DigitSep:
+			s.idx++
+		case '-':
+			if !unicode.IsNumber(s.Read(1)) {
+				return string(s.runes[start : s.idx]), false
+			}
+			s.idx++
+		default:
+			col := s.Col()
+			s.idx = start
+			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in binary literal", chr)
+			return "", false
 		}
 	}
 	return string(s.runes[start : s.idx]), true
@@ -840,25 +840,25 @@ func (s *Scanner) LexHex() (string, bool) {
 	s.idx += 2
 	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-				fallthrough
-			case 'a', 'b', 'c', 'd', 'e', 'f', 'A', 'B', 'C', 'D', 'E', 'F':
-				s.idx++
-			case '-':
-				if !unicode.IsNumber(s.Read(1)) {
-					return string(s.runes[start : s.idx]), false
-				}
-				s.idx++
-			case DigitSep:
-				if look := s.Read(1); !unicode.IsNumber(look) && !isHex(look) {
-					return string(s.runes[start : s.idx]), false
-				}
-				s.idx++
-			default:
-				col := s.Col()
-				s.idx = start
-				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in hex literal", chr)
-				return "", false
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			fallthrough
+		case 'a', 'b', 'c', 'd', 'e', 'f', 'A', 'B', 'C', 'D', 'E', 'F':
+			s.idx++
+		case '-':
+			if !unicode.IsNumber(s.Read(1)) {
+				return string(s.runes[start : s.idx]), false
+			}
+			s.idx++
+		case DigitSep:
+			if look := s.Read(1); !unicode.IsNumber(look) && !isHex(look) {
+				return string(s.runes[start : s.idx]), false
+			}
+			s.idx++
+		default:
+			col := s.Col()
+			s.idx = start
+			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in hex literal", chr)
+			return "", false
 		}
 	}
 	return string(s.runes[start : s.idx]), true
@@ -872,18 +872,18 @@ func (s *Scanner) LexOctal() (string, bool) {
 	s.idx += 2
 	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7':
-				s.idx++
-			case DigitSep:
-				if look := s.Read(1); !isOctal(look) {
-					return string(s.runes[start : s.idx]), false
-				}
-				s.idx++
-			default:
-				col := s.Col()
-				s.idx = start
-				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in octal literal", chr)
-				return "", false
+		case '0', '1', '2', '3', '4', '5', '6', '7':
+			s.idx++
+		case DigitSep:
+			if look := s.Read(1); !isOctal(look) {
+				return string(s.runes[start : s.idx]), false
+			}
+			s.idx++
+		default:
+			col := s.Col()
+			s.idx = start
+			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in octal literal", chr)
+			return "", false
 		}
 	}
 	return string(s.runes[start : s.idx]), true
@@ -898,31 +898,31 @@ func (s *Scanner) LexDecimal() (string, bool, bool) {
 	var got_num bool
 	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='-'; chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-				if !got_num {
-					got_num = true
-				}
-				s.idx++
-			case DigitSep:
-				if look := s.Read(1); !unicode.IsNumber(look) {
-					return string(s.runes[start : s.idx]), true, false
-				}
-				s.idx++
-			case '-':
-				if !unicode.IsNumber(s.Read(1)) {
-					return string(s.runes[start : s.idx]), true, false
-				}
-				s.idx++
-			case '.':
-				if s.HasRuneSeq('.', '.', '.') {
-					return string(s.runes[start : s.idx]), true, false
-				}
-				return s.LexFloat(start, got_num)
-			default:
-				col := s.Col()
-				s.idx = start
-				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in decimal literal", chr)
-				return "", false, false
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			if !got_num {
+				got_num = true
+			}
+			s.idx++
+		case DigitSep:
+			if look := s.Read(1); !unicode.IsNumber(look) {
+				return string(s.runes[start : s.idx]), true, false
+			}
+			s.idx++
+		case '-':
+			if !unicode.IsNumber(s.Read(1)) {
+				return string(s.runes[start : s.idx]), true, false
+			}
+			s.idx++
+		case '.':
+			if s.HasRuneSeq('.', '.', '.') {
+				return string(s.runes[start : s.idx]), true, false
+			}
+			return s.LexFloat(start, got_num)
+		default:
+			col := s.Col()
+			s.idx = start
+			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in decimal literal", chr)
+			return "", false, false
 		}
 	}
 	return string(s.runes[start : s.idx]), true, false
@@ -937,52 +937,52 @@ func (s *Scanner) LexFloat(starter int, has_num bool) (string, bool, bool) {
 	var got_E, num_after_E, got_math bool
 	for chr := s.Read(0); (isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='+' || chr=='-'); chr = s.Read(0) {
 		switch chr {
-			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-				if !got_num {
-					got_num = true
-				}
-				if got_E && !num_after_E {
-					num_after_E = true
-				}
-				s.idx++
-			case DigitSep:
-				if look := s.Read(1); !unicode.IsNumber(look) {
-					return string(s.runes[start : s.idx]), true, true
-				}
-				s.idx++
-			case '.':
-				if !got_num {
-					col := s.Col()
-					s.idx = start
-					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "'.' in float literal before numbers.")
-					return "", false, true
-				}
-				s.idx++
-			case 'e':
-				if got_E {
-					col := s.Col()
-					s.idx = start
-					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "too many Es in float.")
-					return "", false, true
-				}
-				got_E = true
-				s.idx++
-			case '+', '-':
-				if num_after_E || got_math {
-					return "", true, true
-				} else if got_E && !unicode.IsDigit(s.Read(1)) {
-					col := s.Col()
-					s.idx = start
-					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "missing numbers after +/- in E exponent.")
-					return "", false, true
-				}
-				got_math = true
-				s.idx++
-			default:
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			if !got_num {
+				got_num = true
+			}
+			if got_E && !num_after_E {
+				num_after_E = true
+			}
+			s.idx++
+		case DigitSep:
+			if look := s.Read(1); !unicode.IsNumber(look) {
+				return string(s.runes[start : s.idx]), true, true
+			}
+			s.idx++
+		case '.':
+			if !got_num {
 				col := s.Col()
 				s.idx = start
-				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in float literal.", chr)
+				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "'.' in float literal before numbers.")
 				return "", false, true
+			}
+			s.idx++
+		case 'e':
+			if got_E {
+				col := s.Col()
+				s.idx = start
+				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "too many Es in float.")
+				return "", false, true
+			}
+			got_E = true
+			s.idx++
+		case '+', '-':
+			if num_after_E || got_math {
+				return "", true, true
+			} else if got_E && !unicode.IsDigit(s.Read(1)) {
+				col := s.Col()
+				s.idx = start
+				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "missing numbers after +/- in E exponent.")
+				return "", false, true
+			}
+			got_math = true
+			s.idx++
+		default:
+			col := s.Col()
+			s.idx = start
+			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in float literal.", chr)
+			return "", false, true
 		}
 	}
 	if got_E && !num_after_E {
@@ -1005,116 +1005,116 @@ func (s *Scanner) LexString(quote rune) (Token, bool) {
 		if s.Read(0)=='\\' {
 			s.idx++
 			switch esc := s.Read(0); esc {
-				case '\n':
-					s.line++
-					s.start = s.idx
-					s.idx++
-				case '\'', '"':
-					b.WriteRune(esc)
-					s.idx++
-				case '\\':
-					b.WriteRune('\\')
-					s.idx++
-				case 'a':
-					b.WriteRune('\a')
-					s.idx++
-				case 'r':
-					b.WriteRune('\r')
-					s.idx++
-				case 'b':
-					b.WriteRune('\b')
-					s.idx++
-				case 't':
-					b.WriteRune('\t')
-					s.idx++
-				case 'v':
-					b.WriteRune('\v')
-					s.idx++
-				case 'n':
-					b.WriteRune('\n')
-					s.idx++
-				case 'f':
-					b.WriteRune('\f')
-					s.idx++
-				case 'X', 'x':
-					s.idx++
-					value := func() rune {
-						if !isHex(s.Read(0)) {
-							return -1
-						}
-						var r rune
-						for s.Read(0) > 0 {
-							switch chr := s.Read(0); chr {
-								case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-									r = (r << 4) | (chr - '0')
-								case 'A', 'B', 'C', 'D', 'E', 'F':
-									r = (r << 4) | (chr - 'a' + 10)
-								case 'a', 'b', 'c', 'd', 'e', 'f':
-									r = (r << 4) | (chr - 'A' + 10)
-								case ';':
-									s.idx++
-									return r
-								default:
-									return r
-							}
-							s.idx++
-						}
-						return r
-					}()
-					if utf8.ValidRune(value) {
-						b.WriteRune(value)
+			case '\n':
+				s.line++
+				s.start = s.idx
+				s.idx++
+			case '\'', '"':
+				b.WriteRune(esc)
+				s.idx++
+			case '\\':
+				b.WriteRune('\\')
+				s.idx++
+			case 'a':
+				b.WriteRune('\a')
+				s.idx++
+			case 'r':
+				b.WriteRune('\r')
+				s.idx++
+			case 'b':
+				b.WriteRune('\b')
+				s.idx++
+			case 't':
+				b.WriteRune('\t')
+				s.idx++
+			case 'v':
+				b.WriteRune('\v')
+				s.idx++
+			case 'n':
+				b.WriteRune('\n')
+				s.idx++
+			case 'f':
+				b.WriteRune('\f')
+				s.idx++
+			case 'X', 'x':
+				s.idx++
+				value := func() rune {
+					if !isHex(s.Read(0)) {
+						return -1
 					}
-				case 'u', 'U':
-					s.idx++
-					value := func(is_u32 bool) rune {
-						var r rune
-						var encoding_size int
-						if is_u32 {
-							encoding_size = 8
-						} else {
-							encoding_size = 4
-						}
-						for n:=0; s.Read(0) > 0 && n < encoding_size; n++ {
-							switch chr := s.Read(0); chr {
-								case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-									r = (r << 4) | (chr - '0')
-								case 'A', 'B', 'C', 'D', 'E', 'F':
-									r = (r << 4) | (chr - 'a' + 10)
-								case 'a', 'b', 'c', 'd', 'e', 'f':
-									r = (r << 4) | (chr - 'A' + 10)
-								default:
-									return r
-							}
+					var r rune
+					for s.Read(0) > 0 {
+						switch chr := s.Read(0); chr {
+						case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+							r = (r << 4) | (chr - '0')
+						case 'A', 'B', 'C', 'D', 'E', 'F':
+							r = (r << 4) | (chr - 'a' + 10)
+						case 'a', 'b', 'c', 'd', 'e', 'f':
+							r = (r << 4) | (chr - 'A' + 10)
+						case ';':
 							s.idx++
+							return r
+						default:
+							return r
 						}
-						return r
-					}(esc=='U')
-					if utf8.ValidRune(value) {
-						b.WriteRune(value)
+						s.idx++
 					}
-				case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-					value := func() rune {
-						if !isOctal(s.Read(0)) {
-							return -1
+					return r
+				}()
+				if utf8.ValidRune(value) {
+					b.WriteRune(value)
+				}
+			case 'u', 'U':
+				s.idx++
+				value := func(is_u32 bool) rune {
+					var r rune
+					var encoding_size int
+					if is_u32 {
+						encoding_size = 8
+					} else {
+						encoding_size = 4
+					}
+					for n:=0; s.Read(0) > 0 && n < encoding_size; n++ {
+						switch chr := s.Read(0); chr {
+						case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+							r = (r << 4) | (chr - '0')
+						case 'A', 'B', 'C', 'D', 'E', 'F':
+							r = (r << 4) | (chr - 'a' + 10)
+						case 'a', 'b', 'c', 'd', 'e', 'f':
+							r = (r << 4) | (chr - 'A' + 10)
+						default:
+							return r
 						}
-						var r rune
-						for s.Read(0) > 0 {
-							switch chr := s.Read(0); chr {
-								case '0', '1', '2', '3', '4', '5', '6', '7':
-									r = (r << 3) | (chr - '0')
-								case ';':
-									s.idx++
-									return r
-								default:
-									return r
-							}
+						s.idx++
+					}
+					return r
+				}(esc=='U')
+				if utf8.ValidRune(value) {
+					b.WriteRune(value)
+				}
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				value := func() rune {
+					if !isOctal(s.Read(0)) {
+						return -1
+					}
+					var r rune
+					for s.Read(0) > 0 {
+						switch chr := s.Read(0); chr {
+						case '0', '1', '2', '3', '4', '5', '6', '7':
+							r = (r << 3) | (chr - '0')
+						case ';':
 							s.idx++
+							return r
+						default:
+							return r
 						}
-						return r
-					}()
-					if utf8.ValidRune(value) {
-						b.WriteRune(value)
+						s.idx++
 					}
+					return r
+				}()
+				if utf8.ValidRune(value) {
+					b.WriteRune(value)
+				}
 			}
 		} else if s.Read(0)=='\n' {
 			break
@@ -1174,7 +1174,7 @@ func Tokenize(src, filename string) []Token {
 				s.line++
 				s.start = s.idx
 			}
-			//tokens = append(tokens, Token{Lexeme: "\\", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKBackSlash})
+			///tokens = append(tokens, Token{Lexeme: "\\", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKBackSlash})
 		} else if unicode.IsLetter(c) || c=='_' {
 			// handle identifiers & keywords.
 			col, starting := s.Col(), s.idx
@@ -1228,12 +1228,7 @@ func Tokenize(src, filename string) []Token {
 			} else if lexeme, result = s.LexOctal(); result {
 				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKIntLit})
 			} else if nlexeme, res, is_float := s.LexDecimal(); res {
-				var kind TokenKind
-				if is_float {
-					kind = TKFloatLit
-				} else {
-					kind = TKIntLit
-				}
+				kind := Ternary[TokenKind](is_float, TKFloatLit, TKIntLit)
 				tokens = append(tokens, Token{Lexeme: nlexeme, Path: &filename, Line: starting_line, Col: col, Kind: kind})
 			} else {
 				writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "failed to tokenize number.")

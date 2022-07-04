@@ -93,24 +93,24 @@ func (parser *Parser) TopDecl() Node {
 			type_decl := new(TypeDecl)
 			copyPosToNode(&type_decl.node, t)
 			switch t.Kind {
-				case TKMethodMap:
-					type_decl.Type = parser.DoMethodMap()
-				case TKTypedef:
-					type_decl.Type = parser.DoTypedef()
-				case TKTypeset:
-					type_decl.Type = parser.DoTypeSet()
-				case TKEnum:
-					type_decl.Type = parser.DoEnumSpec()
-				case TKStruct:
-					type_decl.Type = parser.DoStruct(false)
-				case TKUsing:
-					type_decl.Type = parser.DoUsingSpec()
-				default:
-					parser.syntaxErr("bad declaration: %q", t.String())
-					bad := new(BadDecl)
-					copyPosToNode(&bad.node, t)
-					plugin.Decls = append(plugin.Decls, bad)
-					goto err_exit
+			case TKMethodMap:
+				type_decl.Type = parser.DoMethodMap()
+			case TKTypedef:
+				type_decl.Type = parser.DoTypedef()
+			case TKTypeset:
+				type_decl.Type = parser.DoTypeSet()
+			case TKEnum:
+				type_decl.Type = parser.DoEnumSpec()
+			case TKStruct:
+				type_decl.Type = parser.DoStruct(false)
+			case TKUsing:
+				type_decl.Type = parser.DoUsingSpec()
+			default:
+				parser.syntaxErr("bad declaration: %q", t.String())
+				bad := new(BadDecl)
+				copyPosToNode(&bad.node, t)
+				plugin.Decls = append(plugin.Decls, bad)
+				goto err_exit
 			}
 			plugin.Decls = append(plugin.Decls, type_decl)
 		}
@@ -230,21 +230,21 @@ func (parser *Parser) DoFuncDeclarator(fdecl *FuncDecl) {
 	///defer fmt.Printf("parser.DoFuncDeclarator()\n")
 	fdecl.Params = parser.DoParamList()
 	switch t := parser.GetToken(0); t.Kind {
-		case TKSemi:
-			parser.want(TKSemi, ";")
-			fdecl.Body = nil
-		case TKLCurl:
-			fdecl.Body = parser.DoBlock()
-		case TKAssign:
+	case TKSemi:
+		parser.want(TKSemi, ";")
+		fdecl.Body = nil
+	case TKLCurl:
+		fdecl.Body = parser.DoBlock()
+	case TKAssign:
+		parser.Advance(1)
+		fdecl.Body = parser.MainExpr()
+		if parser.GetToken(0).Kind==TKSemi {
 			parser.Advance(1)
-			fdecl.Body = parser.MainExpr()
-			if parser.GetToken(0).Kind==TKSemi {
-				parser.Advance(1)
-			}
-		default:
-			parser.syntaxErr("bad declaration: expected body or semicolon for function.")
-			fdecl.Body = new(BadDecl)
-			copyPosToNode(&fdecl.node, t)
+		}
+	default:
+		parser.syntaxErr("bad declaration: expected body or semicolon for function.")
+		fdecl.Body = new(BadStmt)
+		copyPosToNode(&fdecl.node, t)
 	}
 }
 
@@ -270,16 +270,16 @@ func (parser *Parser) AbstractDecl() Spec {
 	
 	// check pre-identifier array dims or ampersand reference.
 	switch t := parser.GetToken(0); t.Kind {
-		case TKLBrack:
-			for parser.GetToken(0).Kind==TKLBrack {
-				tspec.Dims++
-				parser.want(TKLBrack, "[")
-				parser.want(TKRBrack, "]")
-				tspec.IsRef = true
-			}
-		case TKAnd:
+	case TKLBrack:
+		for parser.GetToken(0).Kind==TKLBrack {
+			tspec.Dims++
+			parser.want(TKLBrack, "[")
+			parser.want(TKRBrack, "]")
 			tspec.IsRef = true
-			parser.Advance(1)
+		}
+	case TKAnd:
+		tspec.IsRef = true
+		parser.Advance(1)
 	}
 	return tspec
 }
@@ -321,6 +321,8 @@ func (parser *Parser) DoEnumSpec() Spec {
 	}
 	
 	if t := parser.GetToken(0); t.Kind==TKLParen {
+		parser.Advance(1)
+		t = parser.GetToken(0)
 		if !t.IsOperator() {
 			parser.syntaxErr("expected math operator for enum auto-incrementer.")
 			bad := new(BadSpec)
@@ -378,20 +380,20 @@ func (parser *Parser) DoStruct(is_enum bool) Spec {
 		///fmt.Printf("DoStruct :: current tok: %v\n", t)
 		v_or_f_decl := parser.DoVarOrFuncDecl(false)
 		switch ast := v_or_f_decl.(type) {
-			case *VarDecl:
-				struc.Fields = append(struc.Fields, ast)
-				parser.want(TKSemi, ";")
-			case *FuncDecl:
-				struc.Methods = append(struc.Methods, ast)
-			default:
-				if is_enum {
-					parser.syntaxErr("bad field/method in enum struct")
-				} else {
-					parser.syntaxErr("bad field/method in struct")
-				}
-				bad := new(BadSpec)
-				copyPosToNode(&bad.node, parser.GetToken(0))
-				return bad
+		case *VarDecl:
+			struc.Fields = append(struc.Fields, ast)
+			parser.want(TKSemi, ";")
+		case *FuncDecl:
+			struc.Methods = append(struc.Methods, ast)
+		default:
+			if is_enum {
+				parser.syntaxErr("bad field/method in enum struct")
+			} else {
+				parser.syntaxErr("bad field/method in struct")
+			}
+			bad := new(BadSpec)
+			copyPosToNode(&bad.node, parser.GetToken(0))
+			return bad
 		}
 	}
 	parser.want(TKRCurl, "}")
@@ -483,49 +485,50 @@ func (parser *Parser) DoMethodMap() Spec {
 	parser.want(TKLCurl, "{")
 	for t := parser.GetToken(0); t.Kind != TKEoF && (t.Kind==TKPublic || t.Kind==TKProperty); t = parser.GetToken(0) {
 		switch t.Kind {
-			case TKPublic:
-				// gotta use lookahead for this...
-				// if after the 'public' or 'native' keyword is an identifier
-				// and after identifier is a left parenthesis, it's likely the constructor.
-				//t1, t2, t3 := parser.GetToken(1), parser.GetToken(2), parser.GetToken(3)
-				//if (t1.Kind==TKIdent && t2.Kind==TKLParen) || (t1.Kind==TKNative && t2.Kind==TKIdent && t3.Kind==TKLParen) {
-				if parser.HasTokenKindSeq(TKPublic, TKIdent, TKLParen) || parser.HasTokenKindSeq(TKPublic, TKNative, TKIdent, TKLParen) {
-					// kinda have to make a *FuncDecl from scratch here...
-					ctor_decl := new(FuncDecl)
-					copyPosToNode(&ctor_decl.node, t)
-					// eats up the 'public' and 'native' keyword if it's there.
-					ctor_decl.ClassFlags = parser.StorageClass()
-					ctor_decl.Ident = parser.PrimaryExpr()
-					parser.DoFuncDeclarator(ctor_decl)
-					method := new(MethodMapMethodSpec)
-					copyPosToNode(&method.node, parser.GetToken(0))
-					method.Impl = ctor_decl
-					method.IsCtor = true
-					methodmap.Methods = append(methodmap.Methods, method)
-				} else {
-					method := new(MethodMapMethodSpec)
-					copyPosToNode(&method.node, t)
-					method.Impl = parser.DoVarOrFuncDecl(false)
-					methodmap.Methods = append(methodmap.Methods, method)
-				}
-			case TKProperty:
-				parser.Advance(1)
-				prop := new(MethodMapPropSpec)
-				prop.Type = parser.TypeExpr(false)
-				prop.Ident = parser.PrimaryExpr()
-				parser.want(TKLCurl, "{")
+		case TKPublic:
+			// gotta use lookahead for this...
+			// if after the 'public' or 'native' keyword is an identifier
+			// and after identifier is a left parenthesis, it's likely the constructor.
+			//t1, t2, t3 := parser.GetToken(1), parser.GetToken(2), parser.GetToken(3)
+			//if (t1.Kind==TKIdent && t2.Kind==TKLParen) || (t1.Kind==TKNative && t2.Kind==TKIdent && t3.Kind==TKLParen) {
+			if parser.HasTokenKindSeq(TKPublic, TKIdent, TKLParen) || parser.HasTokenKindSeq(TKPublic, TKNative, TKIdent, TKLParen) {
+				// kinda have to make a *FuncDecl from scratch here...
+				ctor_decl := new(FuncDecl)
+				//ctor_decl.RetType = methodmap
+				copyPosToNode(&ctor_decl.node, t)
+				// eats up the 'public' and 'native' keyword if it's there.
+				ctor_decl.ClassFlags = parser.StorageClass()
+				ctor_decl.Ident = parser.PrimaryExpr()
+				parser.DoFuncDeclarator(ctor_decl)
+				method := new(MethodMapMethodSpec)
+				copyPosToNode(&method.node, parser.GetToken(0))
+				method.Impl = ctor_decl
+				method.IsCtor = true
+				methodmap.Methods = append(methodmap.Methods, method)
+			} else {
+				method := new(MethodMapMethodSpec)
+				copyPosToNode(&method.node, t)
+				method.Impl = parser.DoVarOrFuncDecl(false)
+				methodmap.Methods = append(methodmap.Methods, method)
+			}
+		case TKProperty:
+			parser.Advance(1)
+			prop := new(MethodMapPropSpec)
+			prop.Type = parser.TypeExpr(false)
+			prop.Ident = parser.PrimaryExpr()
+			parser.want(TKLCurl, "{")
+			if spec_ret := parser.DoMethodMapProperty(prop); spec_ret != nil {
+				methodmap.Props = append(methodmap.Props, spec_ret)
+				goto methodmap_loop_exit
+			}
+			if parser.GetToken(0).Kind==TKPublic {
 				if spec_ret := parser.DoMethodMapProperty(prop); spec_ret != nil {
 					methodmap.Props = append(methodmap.Props, spec_ret)
 					goto methodmap_loop_exit
 				}
-				if parser.GetToken(0).Kind==TKPublic {
-					if spec_ret := parser.DoMethodMapProperty(prop); spec_ret != nil {
-						methodmap.Props = append(methodmap.Props, spec_ret)
-						goto methodmap_loop_exit
-					}
-				}
-				parser.want(TKRCurl, "}")
-				methodmap.Props = append(methodmap.Props, prop)
+			}
+			parser.want(TKRCurl, "}")
+			methodmap.Props = append(methodmap.Props, prop)
 		}
 	}
 methodmap_loop_exit:
@@ -613,12 +616,87 @@ func (parser *Parser) Statement() Stmt {
 		return bad
 	}
 	switch t := parser.GetToken(0); t.Kind {
-		case TKConst, TKPublic, TKPrivate, TKProtected, TKForward, TKNative, TKReadOnly, TKSealed, TKVirtual, TKStock:
-			fallthrough
-		case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
-			fallthrough
-		case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKVoid, TKObject, TKDecl, TKStatic, TKVar:
-			// parse declaration.
+	case TKConst, TKPublic, TKPrivate, TKProtected, TKForward, TKNative, TKReadOnly, TKSealed, TKVirtual, TKStock:
+		fallthrough
+	case TKInt, TKInt8, TKInt16, TKInt32, TKInt64, TKIntN:
+		fallthrough
+	case TKUInt8, TKUInt16, TKUInt32, TKUInt64, TKChar, TKDouble, TKVoid, TKObject, TKDecl, TKStatic, TKVar:
+		// parse declaration.
+		vardecl := new(DeclStmt)
+		copyPosToNode(&vardecl.node, t)
+		vardecl.D = parser.DoVarOrFuncDecl(false)
+		if !parser.got(TKSemi) {
+			return parser.noSemi()
+		}
+		return vardecl
+	case TKLCurl:
+		return parser.DoBlock()
+	case TKIf:
+		return parser.DoIf()
+	case TKDo, TKWhile:
+		return parser.While(t)
+	case TKFor:
+		return parser.DoFor()
+	///case TKForEach:
+		// ForEachStmt = 'foreach' '(' DeclStmt 'in' Expr ')' Statement.
+	case TKSwitch:
+		return parser.Switch()
+	case TKReturn:
+		// RetStmt = 'return' [ Expr ] ';' .
+		ret := new(RetStmt)
+		copyPosToNode(&ret.node, t)
+		parser.Advance(1)
+		if parser.GetToken(0).Kind != TKSemi {
+			ret.X = parser.MainExpr()
+			if !parser.got(TKSemi) {
+				return parser.noSemi()
+			}
+			return ret
+		} else {
+			parser.Advance(1)
+			return ret
+		}
+	case TKStaticAssert:
+		// StaticAssertStmt = 'static_assert' '(' Expr [ ',' Expr ] ')' ';' .
+		stasrt := new(StaticAssertStmt)
+		copyPosToNode(&stasrt.node, t)
+		parser.Advance(1)
+		parser.want(TKLParen, "(")
+		stasrt.A = parser.MainExpr()
+		if parser.GetToken(0).Kind==TKComma {
+			parser.Advance(1)
+			stasrt.B = parser.MainExpr()
+		}
+		parser.want(TKRParen, ")")
+		if !parser.got(TKSemi) {
+			return parser.noSemi()
+		}
+		return stasrt
+	case TKAssert:
+		// AssertStmt = 'assert' Expr ';' .
+		asrt := new(AssertStmt)
+		copyPosToNode(&asrt.node, t)
+		parser.Advance(1)
+		asrt.X = parser.MainExpr()
+		if !parser.got(TKSemi) {
+			return parser.noSemi()
+		}
+		return asrt
+	case TKDelete:
+		// DeleteStmt = 'delete' Expr ';' .
+		del := new(DeleteStmt)
+		copyPosToNode(&del.node, t)
+		parser.Advance(1)
+		del.X = parser.MainExpr()
+		if !parser.got(TKSemi) {
+			return parser.noSemi()
+		}
+		return del
+	case TKIdent, TKThis:
+		// vast majority of the times,
+		// an expression starts with an identifier.
+		if t2 := parser.GetToken(1); t2.Kind==TKIdent || parser.HasTokenKindSeq(TKIdent, TKLBrack, TKRBrack) {
+			// possible var decl with custom type.
 			vardecl := new(DeclStmt)
 			copyPosToNode(&vardecl.node, t)
 			vardecl.D = parser.DoVarOrFuncDecl(false)
@@ -626,91 +704,7 @@ func (parser *Parser) Statement() Stmt {
 				return parser.noSemi()
 			}
 			return vardecl
-		case TKLCurl:
-			return parser.DoBlock()
-		case TKIf:
-			return parser.DoIf()
-		case TKDo, TKWhile:
-			return parser.While(t)
-		case TKFor:
-			return parser.DoFor()
-		///case TKForEach:
-			// ForEachStmt = 'foreach' '(' DeclStmt 'in' Expr ')' Statement.
-		case TKSwitch:
-			return parser.Switch()
-		case TKReturn:
-			// RetStmt = 'return' [ Expr ] ';' .
-			ret := new(RetStmt)
-			copyPosToNode(&ret.node, t)
-			parser.Advance(1)
-			if parser.GetToken(0).Kind != TKSemi {
-				ret.X = parser.MainExpr()
-				if !parser.got(TKSemi) {
-					return parser.noSemi()
-				}
-				return ret
-			} else {
-				parser.Advance(1)
-				return ret
-			}
-		case TKStaticAssert:
-			// StaticAssertStmt = 'static_assert' '(' Expr [ ',' Expr ] ')' ';' .
-			stasrt := new(StaticAssertStmt)
-			copyPosToNode(&stasrt.node, t)
-			parser.Advance(1)
-			parser.want(TKLParen, "(")
-			stasrt.A = parser.MainExpr()
-			if parser.GetToken(0).Kind==TKComma {
-				parser.Advance(1)
-				stasrt.B = parser.MainExpr()
-			}
-			parser.want(TKRParen, ")")
-			if !parser.got(TKSemi) {
-				return parser.noSemi()
-			}
-			return stasrt
-		case TKAssert:
-			// AssertStmt = 'assert' Expr ';' .
-			asrt := new(AssertStmt)
-			copyPosToNode(&asrt.node, t)
-			parser.Advance(1)
-			asrt.X = parser.MainExpr()
-			if !parser.got(TKSemi) {
-				return parser.noSemi()
-			}
-			return asrt
-		case TKDelete:
-			// DeleteStmt = 'delete' Expr ';' .
-			del := new(DeleteStmt)
-			copyPosToNode(&del.node, t)
-			parser.Advance(1)
-			del.X = parser.MainExpr()
-			if !parser.got(TKSemi) {
-				return parser.noSemi()
-			}
-			return del
-		case TKIdent, TKThis:
-			// vast majority of the times,
-			// an expression starts with an identifier.
-			if t2 := parser.GetToken(1); t2.Kind==TKIdent || parser.HasTokenKindSeq(TKIdent, TKLBrack, TKRBrack) {
-				// possible var decl with custom type.
-				vardecl := new(DeclStmt)
-				copyPosToNode(&vardecl.node, t)
-				vardecl.D = parser.DoVarOrFuncDecl(false)
-				if !parser.got(TKSemi) {
-					return parser.noSemi()
-				}
-				return vardecl
-			} else {
-				exp := new(ExprStmt)
-				copyPosToNode(&exp.node, t)
-				exp.X = parser.MainExpr()
-				if !parser.got(TKSemi) {
-					return parser.noSemi()
-				}
-				return exp
-			}
-		case TKIncr, TKDecr, TKViewAs:
+		} else {
 			exp := new(ExprStmt)
 			copyPosToNode(&exp.node, t)
 			exp.X = parser.MainExpr()
@@ -718,25 +712,34 @@ func (parser *Parser) Statement() Stmt {
 				return parser.noSemi()
 			}
 			return exp
-		case TKBreak, TKContinue:
-			flow := new(FlowStmt)
-			copyPosToNode(&flow.node, t)
-			flow.Kind = t.Kind
-			parser.Advance(1)
-			if !parser.got(TKSemi) {
-				return parser.noSemi()
-			}
-			return flow
-		case TKCase, TKDefault, TKSemi:
-			// lone semicolon is considered an error.
-			parser.Advance(1)
-			fallthrough
-		default:
-			parser.syntaxErr("unknown statement: %q", t.String())
-			bad := new(BadStmt)
-			copyPosToNode(&bad.node, parser.GetToken(0))
-			parser.Advance(1)
-			return bad
+		}
+	case TKIncr, TKDecr, TKViewAs:
+		exp := new(ExprStmt)
+		copyPosToNode(&exp.node, t)
+		exp.X = parser.MainExpr()
+		if !parser.got(TKSemi) {
+			return parser.noSemi()
+		}
+		return exp
+	case TKBreak, TKContinue:
+		flow := new(FlowStmt)
+		copyPosToNode(&flow.node, t)
+		flow.Kind = t.Kind
+		parser.Advance(1)
+		if !parser.got(TKSemi) {
+			return parser.noSemi()
+		}
+		return flow
+	case TKCase, TKDefault, TKSemi:
+		// lone semicolon is considered an error.
+		parser.Advance(1)
+		fallthrough
+	default:
+		parser.syntaxErr("unknown statement: %q", t.String())
+		bad := new(BadStmt)
+		copyPosToNode(&bad.node, parser.GetToken(0))
+		parser.Advance(1)
+		return bad
 	}
 }
 
@@ -784,15 +787,15 @@ func (parser *Parser) DoIf() Stmt {
 		// personally, I'd prefer to fix the not-needing-{ thing but whatever.
 		/*
 		switch t := parser.GetToken(0); t.Kind {
-			case TKIf:
-				ifstmt.Else = parser.DoIf()
-			case TKLCurl:
-				ifstmt.Else = parser.DoBlock()
-			default:
-				parser.syntaxErr("ill-formed else block, missing 'if' or { curl.")
-				bad := new(BadStmt)
-				copyPosToNode(&bad.node, t)
-				ifstmt.Else = bad
+		case TKIf:
+			ifstmt.Else = parser.DoIf()
+		case TKLCurl:
+			ifstmt.Else = parser.DoBlock()
+		default:
+			parser.syntaxErr("ill-formed else block, missing 'if' or { curl.")
+			bad := new(BadStmt)
+			copyPosToNode(&bad.node, t)
+			ifstmt.Else = bad
 		}
 		*/
 	}
@@ -840,31 +843,31 @@ func (parser *Parser) Switch() Stmt {
 	bad_case := false
 	for t := parser.GetToken(0); t.Kind != TKEoF && t.Kind != TKRCurl; t = parser.GetToken(0) {
 		switch t.Kind {
-			case TKCase:
-				// next do case expressions:
-				_case := new(CaseStmt)
-				copyPosToNode(&_case.node, parser.GetToken(0))
-				parser.Advance(1)
-				case_expr := parser.MainExpr()
-				if _, is_bad := case_expr.(*BadExpr); is_bad {
-					parser.syntaxErr("bad case expr.")
-					bad_case = true
-					goto errd_case
-				} else {
-					_case.Case = case_expr
-				}
-				parser.want(TKColon, ":")
-				_case.Body = parser.Statement()
-				swtch.Cases = append(swtch.Cases, _case)
-			case TKDefault:
-				parser.Advance(1)
-				parser.want(TKColon, ":")
-				swtch.Default = parser.Statement()
-			default:
-				parser.syntaxErr("bad switch label: %+v.", parser.GetToken(0))
-				bad := new(BadStmt)
-				copyPosToNode(&bad.node, parser.GetToken(0))
-				return bad
+		case TKCase:
+			// next do case expressions:
+			_case := new(CaseStmt)
+			copyPosToNode(&_case.node, parser.GetToken(0))
+			parser.Advance(1)
+			case_expr := parser.MainExpr()
+			if _, is_bad := case_expr.(*BadExpr); is_bad {
+				parser.syntaxErr("bad case expr.")
+				bad_case = true
+				goto errd_case
+			} else {
+				_case.Case = case_expr
+			}
+			parser.want(TKColon, ":")
+			_case.Body = parser.Statement()
+			swtch.Cases = append(swtch.Cases, _case)
+		case TKDefault:
+			parser.Advance(1)
+			parser.want(TKColon, ":")
+			swtch.Default = parser.Statement()
+		default:
+			parser.syntaxErr("bad switch label: %+v.", parser.GetToken(0))
+			bad := new(BadStmt)
+			copyPosToNode(&bad.node, parser.GetToken(0))
+			return bad
 		}
 	}
 	parser.want(TKRCurl, "}")
@@ -923,7 +926,7 @@ func (parser *Parser) SubMainExpr() Expr {
 	return a
 }
 
-// TernaryExpr = '?' LogicalOrExpr ':' Expr .
+// TernaryExpr = '?' SubMainExpr ':' Expr .
 func (parser *Parser) DoTernary(a Expr) Expr {
 	///defer fmt.Printf("parser.DoTernary()\n")
 	tk := parser.GetToken(0)
@@ -1162,15 +1165,15 @@ func (parser *Parser) PrefixExpr() Expr {
 	///defer fmt.Printf("parser.PrefixExpr()\n")
 	// certain patterns are allowed to recursively run Prefix.
 	switch t := parser.GetToken(0); t.Kind {
-		case TKIncr, TKDecr, TKNot, TKCompl, TKSub, TKSizeof, TKDefined, TKNew:
-			n := new(UnaryExpr)
-			parser.Advance(1)
-			copyPosToNode(&n.node, t)
-			n.X = parser.PrefixExpr()
-			n.Kind = t.Kind
-			return n
-		default:
-			return parser.PostfixExpr()
+	case TKIncr, TKDecr, TKNot, TKCompl, TKSub, TKSizeof, TKDefined, TKNew:
+		n := new(UnaryExpr)
+		parser.Advance(1)
+		copyPosToNode(&n.node, t)
+		n.X = parser.PrefixExpr()
+		n.Kind = t.Kind
+		return n
+	default:
+		return parser.PostfixExpr()
 	}
 }
 
@@ -1265,41 +1268,41 @@ func (parser *Parser) PostfixExpr() Expr {
 	for t := parser.GetToken(0); t.Kind==TKDot || t.Kind==TKLBrack || t.Kind==TKLParen || t.Kind==TK2Colons || t.Kind==TKIncr || t.Kind==TKDecr; t = parser.GetToken(0) {
 		parser.Advance(1)
 		switch t.Kind {
-			case TKDot:
-				field := new(FieldExpr)
-				copyPosToNode(&field.node, t)
-				field.X = n
-				field.Sel = parser.PrimaryExpr()
-				n = field
-			case TK2Colons:
-				namespc := new(NameSpaceExpr)
-				copyPosToNode(&namespc.node, t)
-				namespc.N = n
-				namespc.Id = parser.PrimaryExpr()
-				n = namespc
-			case TKLBrack:
-				arr := new(IndexExpr)
-				copyPosToNode(&arr.node, t)
-				arr.X = n
-				if parser.GetToken(0).Kind != TKRBrack {
-					arr.Index = parser.MainExpr()
-				}
-				parser.want(TKRBrack, "]")
-				n = arr
-			case TKIncr, TKDecr:
-				incr := new(UnaryExpr)
-				copyPosToNode(&incr.node, t)
-				incr.X = n
-				incr.Kind = t.Kind
-				incr.Post = true
-				n = incr
-			case TKLParen:
-				call := new(CallExpr)
-				copyPosToNode(&call.node, t)
-				call.Func = n
-				call.ArgList = parser.ExprList(TKRParen, TKComma, false)
-				parser.want(TKRParen, ")")
-				n = call
+		case TKDot:
+			field := new(FieldExpr)
+			copyPosToNode(&field.node, t)
+			field.X = n
+			field.Sel = parser.PrimaryExpr()
+			n = field
+		case TK2Colons:
+			namespc := new(NameSpaceExpr)
+			copyPosToNode(&namespc.node, t)
+			namespc.N = n
+			namespc.Id = parser.PrimaryExpr()
+			n = namespc
+		case TKLBrack:
+			arr := new(IndexExpr)
+			copyPosToNode(&arr.node, t)
+			arr.X = n
+			if parser.GetToken(0).Kind != TKRBrack {
+				arr.Index = parser.MainExpr()
+			}
+			parser.want(TKRBrack, "]")
+			n = arr
+		case TKIncr, TKDecr:
+			incr := new(UnaryExpr)
+			copyPosToNode(&incr.node, t)
+			incr.X = n
+			incr.Kind = t.Kind
+			incr.Post = true
+			n = incr
+		case TKLParen:
+			call := new(CallExpr)
+			copyPosToNode(&call.node, t)
+			call.Func = n
+			call.ArgList = parser.ExprList(TKRParen, TKComma, false)
+			parser.want(TKRParen, ")")
+			n = call
 		}
 	}
 	return n
@@ -1322,81 +1325,81 @@ func (parser *Parser) PrimaryExpr() Expr {
 		return parser.TypeExpr(false)
 	}
 	switch prim := parser.GetToken(0); prim.Kind {
-		case TKEllipses:
-			ell := new(EllipsesExpr)
-			copyPosToNode(&ell.node, prim)
-			ret_expr = ell
-		case TKLParen:
-			parser.Advance(1)
-			ret_expr = parser.MainExpr()
-			if t := parser.GetToken(0); t.Kind != TKRParen {
-				parser.syntaxErr("missing ending ')' right paren for nested expression")
-				bad := new(BadExpr)
-				copyPosToNode(&bad.node, parser.GetToken(0))
-				ret_expr = bad
-			}
-		case TKLCurl:
-			brktexpr := new(BracketExpr)
-			copyPosToNode(&brktexpr.node, prim)
-			parser.Advance(1)
-			brktexpr.Exprs = parser.ExprList(TKRCurl, TKComma, true)
-			ret_expr = brktexpr
-		case TKOperator: // operator# like operator% or operator+
-			operator := prim.Lexeme
-			operator += parser.GetToken(1).Lexeme
-			parser.Advance(1)
-			iden := new(Name)
-			iden.Value = operator
-			copyPosToNode(&iden.node, prim)
-			ret_expr = iden
-		case TKIdent:
-			iden := new(Name)
-			iden.Value = prim.Lexeme
-			copyPosToNode(&iden.node, prim)
-			ret_expr = iden
-		case TKIntLit:
-			num := new(BasicLit)
-			num.Value = prim.Lexeme
-			num.Kind = IntLit
-			copyPosToNode(&num.node, prim)
-			ret_expr = num
-		case TKFloatLit:
-			num := new(BasicLit)
-			num.Value = prim.Lexeme
-			num.Kind = FloatLit
-			copyPosToNode(&num.node, prim)
-			ret_expr = num
-		case TKStrLit:
-			str := new(BasicLit)
-			str.Value = prim.Lexeme
-			str.Kind = StringLit
-			copyPosToNode(&str.node, prim)
-			ret_expr = str
-		case TKCharLit:
-			str := new(BasicLit)
-			str.Value = prim.Lexeme
-			str.Kind = CharLit
-			copyPosToNode(&str.node, prim)
-			ret_expr = str
-		case TKThis:
-			this := new(ThisExpr)
-			copyPosToNode(&this.node, prim)
-			ret_expr = this
-		case TKTrue, TKFalse:
-			boolean := new(BasicLit)
-			boolean.Value = prim.Lexeme
-			boolean.Kind = BoolLit
-			copyPosToNode(&boolean.node, prim)
-			ret_expr = boolean
-		case TKNull:
-			null := new(NullExpr)
-			copyPosToNode(&null.node, prim)
-			ret_expr = null
-		default:
-			parser.syntaxErr("bad primary expression '%s'", prim.Lexeme)
+	case TKEllipses:
+		ell := new(EllipsesExpr)
+		copyPosToNode(&ell.node, prim)
+		ret_expr = ell
+	case TKLParen:
+		parser.Advance(1)
+		ret_expr = parser.MainExpr()
+		if t := parser.GetToken(0); t.Kind != TKRParen {
+			parser.syntaxErr("missing ending ')' right paren for nested expression")
 			bad := new(BadExpr)
-			copyPosToNode(&bad.node, prim)
+			copyPosToNode(&bad.node, parser.GetToken(0))
 			ret_expr = bad
+		}
+	case TKLCurl:
+		brktexpr := new(BracketExpr)
+		copyPosToNode(&brktexpr.node, prim)
+		parser.Advance(1)
+		brktexpr.Exprs = parser.ExprList(TKRCurl, TKComma, true)
+		ret_expr = brktexpr
+	case TKOperator: // operator# like operator% or operator+
+		operator := prim.Lexeme
+		operator += parser.GetToken(1).Lexeme
+		parser.Advance(1)
+		iden := new(Name)
+		iden.Value = operator
+		copyPosToNode(&iden.node, prim)
+		ret_expr = iden
+	case TKIdent:
+		iden := new(Name)
+		iden.Value = prim.Lexeme
+		copyPosToNode(&iden.node, prim)
+		ret_expr = iden
+	case TKIntLit:
+		num := new(BasicLit)
+		num.Value = prim.Lexeme
+		num.Kind = IntLit
+		copyPosToNode(&num.node, prim)
+		ret_expr = num
+	case TKFloatLit:
+		num := new(BasicLit)
+		num.Value = prim.Lexeme
+		num.Kind = FloatLit
+		copyPosToNode(&num.node, prim)
+		ret_expr = num
+	case TKStrLit:
+		str := new(BasicLit)
+		str.Value = prim.Lexeme
+		str.Kind = StringLit
+		copyPosToNode(&str.node, prim)
+		ret_expr = str
+	case TKCharLit:
+		str := new(BasicLit)
+		str.Value = prim.Lexeme
+		str.Kind = CharLit
+		copyPosToNode(&str.node, prim)
+		ret_expr = str
+	case TKThis:
+		this := new(ThisExpr)
+		copyPosToNode(&this.node, prim)
+		ret_expr = this
+	case TKTrue, TKFalse:
+		boolean := new(BasicLit)
+		boolean.Value = prim.Lexeme
+		boolean.Kind = BoolLit
+		copyPosToNode(&boolean.node, prim)
+		ret_expr = boolean
+	case TKNull:
+		null := new(NullExpr)
+		copyPosToNode(&null.node, prim)
+		ret_expr = null
+	default:
+		parser.syntaxErr("bad primary expression '%s'", prim.Lexeme)
+		bad := new(BadExpr)
+		copyPosToNode(&bad.node, prim)
+		ret_expr = bad
 	}
 	parser.Advance(1)
 	return ret_expr

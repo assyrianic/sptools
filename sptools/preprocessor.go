@@ -89,14 +89,16 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 				args[num_arg] = append(args[num_arg], t)
 				tr.Advance(1)
 				t = tr.Get(0, TOKFLAG_IGNORE_ALL)
-				if t.Kind==TKRParen && nested_parens != 0 {
-					nested_parens--
+				if (t.Kind==TKRParen || t.Kind==TKComma) && nested_parens > 0 {
+					if t.Kind==TKRParen {
+						nested_parens--
+					}
 					args[num_arg] = append(args[num_arg], t)
 					tr.Advance(1)
 					t = tr.Get(0, TOKFLAG_IGNORE_ALL)
 				}
 			}
-			///fmt.Printf("Apply :: func-like Macro -> arg['%v']=='%v'\n", num_arg, args[num_arg])
+			fmt.Printf("Apply :: func-like Macro -> arg['%v']=='%v'\n", num_arg, args[num_arg])
 			if t.Kind==TKComma {
 				tr.Advance(1)
 			}
@@ -639,9 +641,13 @@ func preprocess(tr *TokenReader, ifStack condInclStack, macros map[string]Macro,
 							break
 						}
 					}
+					
 					/*
 					 * Github Issue #5 - GammaCase
-					 * when "" are used, it tries to lookup the file, relative to the .sp file first, and if it fails, it should fall back to include folders search as with <>, and that's where the difference with the original spcomp is, as currently it doesn't try to scan include folders as a fall back option.
+					 * when "" are used, it tries to lookup the file, relative to the .sp file first,
+					 * and if it fails, it should fall back to include folders search as with <>,
+					 * and that's where the difference with the original spcomp is,
+					 * as currently it doesn't try to scan include folders as a fall back option.
 					 */
 					if filetext=="" {
 						filedir := "include/" + t2.Lexeme

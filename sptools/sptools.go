@@ -108,9 +108,13 @@ func finishLexing(tokens []Token, flags int, macros map[string]Macro) ([]Token, 
 	return tokens, true
 }
 
+func MakeParser(tokens []Token) Parser {
+	return Parser{ TokenReader: MakeTokenReader(tokens) }
+}
+
 
 func ParseTokens(tokens []Token) Node {
-	parser := Parser{ TokenReader: MakeTokenReader(tokens) }
+	parser := MakeParser(tokens)
 	return parser.Start()
 }
 
@@ -127,6 +131,24 @@ func ParseString(code string, flags int, macros map[string]Macro) Node {
 	output, good := finishLexing(Tokenize(code, ""), flags, macros)
 	if good {
 		return ParseTokens(output)
+	}
+	return nil
+}
+
+func ParseExpression(code string, flags int, macros map[string]Macro) Expr {
+	output, good := finishLexing(Tokenize(code, ""), flags, macros)
+	if good {
+		parser := MakeParser(output)
+		return parser.MainExpr()
+	}
+	return nil
+}
+
+func ParseStatement(code string, flags int, macros map[string]Macro) Stmt {
+	output, good := finishLexing(Tokenize(code, ""), flags, macros)
+	if good {
+		parser := Parser{ TokenReader: MakeTokenReader(output) }
+		return parser.Statement()
 	}
 	return nil
 }

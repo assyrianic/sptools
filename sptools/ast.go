@@ -39,6 +39,13 @@ type Plugin struct {
 	node
 }
 
+func IsPluginNode(n Node) bool {
+	if _, is_pl := n.(*Plugin); is_pl {
+		return true
+	}
+	return false
+}
+
 
 type StorageClassFlags uint16
 const (
@@ -156,6 +163,14 @@ type (
 type decl struct{ node }
 func (*decl) aDecl() {}
 
+func IsDeclNode(n Node) bool {
+	switch n.(type) {
+	case *FuncDecl, *VarDecl, *TypeDecl, *BadDecl:
+		return true
+	}
+	return false
+}
+
 
 // Specifications here.
 // Spec represents a constant, type, or variable declaration.
@@ -255,12 +270,26 @@ type (
 	// typeset name {};
 	TypeSetSpec struct {
 		Ident Expr
-		Signatures []Spec // []*FuncSpec
+		Signatures []Spec // []*SignatureSpec
 		spec
 	}
 )
 type spec struct{ node }
 func (*spec) aSpec() {}
+
+func IsSpecNode(n Node) bool {
+	switch n.(type) {
+	case *EnumSpec, *StructSpec, *UsingSpec, *TypeSpec:
+		return true
+	case *MethodMapSpec, *MethodMapPropSpec, *MethodMapMethodSpec:
+		return true
+	case *TypeDefSpec, *TypeSetSpec, *SignatureSpec:
+		return true
+	case *BadSpec:
+		return true
+	}
+	return false
+}
 
 
 // statement nodes here.
@@ -363,6 +392,18 @@ type (
 )
 type stmt struct{ node }
 func (*stmt) aStmt() {}
+
+func IsStmtNode(n Node) bool {
+	switch n.(type) {
+	case *BlockStmt, *IfStmt, *WhileStmt, *ForStmt, *ExprStmt, *SwitchStmt, *CaseStmt:
+		return true
+	case *RetStmt, *DeclStmt, *DeleteStmt, *FlowStmt, *AssertStmt, *StaticAssertStmt:
+		return true
+	case *BadStmt:
+		return true
+	}
+	return false
+}
 
 
 // expression nodes here.
@@ -501,6 +542,20 @@ type (
 )
 type expr struct{ node }
 func (*expr) aExpr() {}
+
+func IsExprNode(n Node) bool {
+	switch n.(type) {
+	case *BracketExpr, *EllipsesExpr, *CommaExpr, *TernaryExpr, *BinExpr, *TypedExpr, *ViewAsExpr:
+		return true
+	case *UnaryExpr, *FieldExpr, *NameSpaceExpr, *IndexExpr, *NamedArg, *CallExpr, *ThisExpr, *NullExpr:
+		return true
+	case *Name, *BasicLit:
+		return true
+	case *BadExpr:
+		return true
+	}
+	return false
+}
 
 
 func printTabs(c rune, tabs int, w io.Writer) {
@@ -1036,5 +1091,571 @@ func Walk(n Node, visitor func(Node) bool) {
 		for i := range ast.Decls {
 			Walk(ast.Decls[i], visitor)
 		}
+	}
+}
+
+
+
+const (
+	SP_GENFLAG_NEWLINE   = 1 << iota
+	SP_GENFLAG_SEMICOLON = 1 << iota
+	SP_GENFLAG_ALL       = -1
+)
+
+func ExprToString(e Expr) string {
+	var sb strings.Builder
+	exprToString(e, &sb)
+	return sb.String()
+}
+
+func exprToString(e Expr, sb *strings.Builder) {
+	switch ast := e.(type) {
+	case *BadExpr:
+		sb.WriteString("<bad Expr>")
+	case *NullExpr:
+		sb.WriteString("null")
+	case *BasicLit:
+		switch ast.Kind {
+		case StringLit:
+			sb.WriteString("\"" + ast.Value + "\"")
+		case CharLit:
+			sb.WriteString("'" + ast.Value + "'")
+		default:
+			sb.WriteString(ast.Value)
+		}
+	case *ThisExpr:
+		sb.WriteString("this")
+	case *Name:
+		sb.WriteString(ast.Value)
+	case *UnaryExpr:
+		if ast.Post {
+			exprToString(ast.X, sb)
+			sb.WriteString(TokenToStr[ast.Kind])
+		} else {
+			sb.WriteString(TokenToStr[ast.Kind])
+			exprToString(ast.X, sb)
+		}
+	case *CallExpr:
+		exprToString(ast.Func, sb)
+		sb.WriteRune('(')
+		if ast.ArgList != nil {
+			for i := range ast.ArgList {
+				exprToString(ast.ArgList[i], sb)
+				if i+1 != len(ast.ArgList) {
+					sb.WriteString(", ")
+				}
+			}
+		}
+		sb.WriteRune(')')
+	case *IndexExpr:
+		exprToString(ast.X, sb)
+		sb.WriteRune('[')
+		exprToString(ast.Index, sb)
+		sb.WriteRune(']')
+	case *NameSpaceExpr:
+		exprToString(ast.N, sb)
+		sb.WriteString("::")
+		exprToString(ast.Id, sb)
+	case *FieldExpr:
+		exprToString(ast.X, sb)
+		sb.WriteRune('.')
+		exprToString(ast.Sel, sb)
+	case *ViewAsExpr:
+		sb.WriteString("view_as< ")
+		exprToString(ast.Type, sb)
+		sb.WriteString(" >(")
+		exprToString(ast.X, sb)
+		sb.WriteRune(')')
+	case *BinExpr:
+		exprToString(ast.L, sb)
+		sb.WriteString(" " + TokenToStr[ast.Kind] + " ")
+		exprToString(ast.R, sb)
+	case *TernaryExpr:
+		sb.WriteRune('(')
+		exprToString(ast.A, sb)
+		sb.WriteString(")? ")
+		exprToString(ast.B, sb)
+		sb.WriteString(" : ")
+		exprToString(ast.C, sb)
+	case *NamedArg:
+		sb.WriteRune('.')
+		exprToString(ast.X, sb)
+	case *TypedExpr:
+		sb.WriteString(ast.Tok.Lexeme)
+	case *CommaExpr:
+		for i := range ast.Exprs {
+			exprToString(ast.Exprs[i], sb)
+			if i+1 != len(ast.Exprs) {
+				sb.WriteString(", ")
+			}
+		}
+	case *BracketExpr:
+		sb.WriteString("{ ")
+		for i := range ast.Exprs {
+			exprToString(ast.Exprs[i], sb)
+			if i+1 != len(ast.Exprs) {
+				sb.WriteString(", ")
+			}
+		}
+		sb.WriteString(" }")
+	case *EllipsesExpr:
+		sb.WriteString("...")
+	default:
+		sb.WriteString("")
+	}
+}
+
+
+func writeTabs(sb *strings.Builder, tabs int, tab_rune rune) {
+	for i := 0; i < tabs; i++ {
+		sb.WriteRune(tab_rune)
+	}
+}
+
+func StmtToString(e Stmt) string {
+	var sb strings.Builder
+	stmtToString(e, &sb, 0)
+	return sb.String()
+}
+
+// TODO: if over 50 statements for one construct, add an ending construct comment.
+func stmtToString(e Stmt, sb *strings.Builder, tabs int) {
+	const tab_rune = '\t'
+	switch ast := e.(type) {
+	case *BadStmt:
+		sb.WriteString("<bad Stmt>")
+	case *RetStmt:
+		sb.WriteString("return")
+		if ast.X != nil {
+			sb.WriteRune(' ')
+			exprToString(ast.X, sb)
+		}
+		sb.WriteRune(';')
+	case *IfStmt:
+		sb.WriteString("if( ")
+		exprToString(ast.Cond, sb)
+		sb.WriteString(" ) ")
+		if _, isblock := ast.Then.(*BlockStmt); isblock {
+			stmtToString(ast.Then, sb, tabs)
+		} else {
+			sb.WriteString("{\n")
+			writeTabs(sb, tabs+1, tab_rune)
+			stmtToString(ast.Then, sb, tabs)
+			sb.WriteRune('\n')
+			writeTabs(sb, tabs, tab_rune)
+			sb.WriteRune('}')
+		}
+		
+		if ast.Else != nil {
+			sb.WriteString(" else ")
+			stmtToString(ast.Else, sb, tabs)
+		}
+	case *WhileStmt:
+		if ast.Do {
+			sb.WriteString("do ")
+			stmtToString(ast.Body, sb, tabs)
+			sb.WriteString(" while( ")
+			exprToString(ast.Cond, sb)
+			sb.WriteString(" );")
+		} else {
+			sb.WriteString("while( ")
+			exprToString(ast.Cond, sb)
+			sb.WriteString(" ) ")
+			stmtToString(ast.Body, sb, tabs)
+		}
+	case *ForStmt:
+		sb.WriteString("for( ")
+		if ast.Init != nil {
+			// could be Decl or Expr
+			if _, is_decl := ast.Init.(*VarDecl); is_decl {
+			} else {
+				
+				exprToString(ast.Init.(Expr), sb)
+			}
+		}
+		sb.WriteRune(';')
+		if ast.Cond != nil {
+			sb.WriteRune(' ')
+			exprToString(ast.Cond, sb)
+		}
+		sb.WriteRune(';')
+		if ast.Post != nil {
+			sb.WriteRune(' ')
+			exprToString(ast.Post, sb)
+		}
+		sb.WriteString(" ) ")
+		stmtToString(ast.Body, sb, tabs)
+	case *ExprStmt:
+		exprToString(ast.X, sb)
+		sb.WriteRune(';')
+	case *BlockStmt:
+		sb.WriteString("{\n")
+		for i := range ast.Stmts {
+			writeTabs(sb, tabs + 1, tab_rune)
+			stmtToString(ast.Stmts[i], sb, tabs + 1)
+			if i + 1 != len(ast.Stmts) {
+				sb.WriteRune('\n')
+			}
+		}
+		sb.WriteRune('\n')
+		writeTabs(sb, tabs, tab_rune)
+		sb.WriteRune('}')
+	case *DeleteStmt:
+		sb.WriteString("delete ")
+		exprToString(ast.X, sb)
+		sb.WriteRune(';')
+	case *SwitchStmt:
+		sb.WriteString("switch( ")
+		exprToString(ast.Cond, sb)
+		sb.WriteString(" ) {\n")
+		for i := range ast.Cases {
+			writeTabs(sb, tabs + 1, tab_rune)
+			stmtToString(ast.Cases[i], sb, tabs + 1)
+			if i+1 != len(ast.Cases) {
+				sb.WriteRune('\n')
+			}
+		}
+		
+		if ast.Default != nil {
+			sb.WriteRune('\n')
+			writeTabs(sb, tabs + 1, tab_rune)
+			sb.WriteString("default: ")
+			stmtToString(ast.Default, sb, tabs+1)
+		}
+		sb.WriteRune('\n')
+		writeTabs(sb, tabs, tab_rune)
+		sb.WriteRune('}')
+	case *CaseStmt:
+		sb.WriteString("case ")
+		exprToString(ast.Case, sb)
+		sb.WriteString(": ")
+		if _, isblock := ast.Body.(*BlockStmt); isblock {
+			stmtToString(ast.Body, sb, tabs)
+		} else {
+			sb.WriteString("{\n")
+			writeTabs(sb, tabs + 1, tab_rune)
+			stmtToString(ast.Body, sb, tabs)
+			sb.WriteRune('\n')
+			writeTabs(sb, tabs, tab_rune)
+			sb.WriteRune('}')
+		}
+	case *FlowStmt:
+		sb.WriteString(TokenToStr[ast.Kind] + ";")
+	case *AssertStmt:
+		sb.WriteString("assert( ")
+		exprToString(ast.X, sb)
+		sb.WriteString(" );")
+	case *StaticAssertStmt:
+		sb.WriteString("static_assert( ")
+		exprToString(ast.A, sb)
+		if ast.B != nil {
+			sb.WriteString(", ")
+			exprToString(ast.B, sb)
+		}
+		sb.WriteString(" );")
+	case *DeclStmt:
+		declToString(ast.D, sb, tabs, SP_GENFLAG_SEMICOLON)
+	default:
+		sb.WriteString("")
+	}
+}
+
+
+func SpecToString(e Spec) string {
+	var sb strings.Builder
+	specToString(e, &sb, 0)
+	return sb.String()
+}
+
+func specToString(e Spec, sb *strings.Builder, tabs int) {
+	const tab_rune = '\t'
+	switch ast := e.(type) {
+	case *BadSpec:
+		sb.WriteString("<bad Spec>")
+	case *TypeSpec:
+		exprToString(ast.Type, sb)
+		if ast.Dims > 0 {
+			for i := 0; i < ast.Dims; i++ {
+				sb.WriteString("[]")
+			}
+		} else if ast.IsRef {
+			sb.WriteString("&")
+		}
+	case *EnumSpec:
+		sb.WriteString("enum ")
+		if ast.Ident != nil {
+			exprToString(ast.Ident, sb)
+			sb.WriteRune(' ')
+		}
+		if ast.Step != nil {
+			sb.WriteString("( ")
+			sb.WriteString(TokenToStr[ast.StepOp])
+			sb.WriteRune(' ')
+			exprToString(ast.Step, sb)
+			sb.WriteString(" ) ")
+		}
+		sb.WriteString("{\n")
+		for i := range ast.Names {
+			writeTabs(sb, tabs + 1, tab_rune)
+			exprToString(ast.Names[i], sb)
+			if ast.Values[i] != nil {
+				sb.WriteString(" = ")
+				exprToString(ast.Values[i], sb)
+			}
+			if i+1 != len(ast.Names) {
+				sb.WriteString(",")
+			}
+			sb.WriteRune('\n')
+		}
+		writeTabs(sb, tabs, tab_rune)
+		sb.WriteString("};\n")
+	case *StructSpec:
+		if ast.IsEnum {
+			sb.WriteString("enum ")
+		}
+		sb.WriteString("struct ")
+		exprToString(ast.Ident, sb)
+		sb.WriteString(" {\n")
+		if len(ast.Fields) > 0 {
+			for i := range ast.Fields {
+				writeTabs(sb, tabs + 1, tab_rune)
+				declToString(ast.Fields[i], sb, tabs + 1, SP_GENFLAG_ALL)
+			}
+		}
+		if len(ast.Methods) > 0 {
+			sb.WriteRune('\n')
+			for i := range ast.Methods {
+				writeTabs(sb, tabs + 1, tab_rune)
+				declToString(ast.Methods[i], sb, tabs + 1, SP_GENFLAG_NEWLINE)
+			}
+		}
+		writeTabs(sb, tabs, tab_rune)
+		sb.WriteRune('}')
+		if !ast.IsEnum {
+			sb.WriteRune(';')
+		}
+		sb.WriteRune('\n')
+	case *UsingSpec:
+		sb.WriteString("using ")
+		exprToString(ast.Namespace, sb)
+		sb.WriteString(";\n")
+	case *SignatureSpec:
+		sb.WriteString("function ")
+		specToString(ast.Type, sb, 0)
+		sb.WriteString(" (")
+		if len(ast.Params) > 0 {
+			for i := range ast.Params {
+				declToString(ast.Params[i], sb, tabs + 1, 0)
+				if i+1 != len(ast.Params) {
+					sb.WriteString(", ")
+				}
+			}
+		}
+		sb.WriteString(")")
+	case *TypeDefSpec:
+		sb.WriteString("typedef ")
+		exprToString(ast.Ident, sb)
+		sb.WriteString(" = ")
+		specToString(ast.Sig, sb, 0)
+		sb.WriteRune(';')
+	case *TypeSetSpec:
+		sb.WriteString("typeset ")
+		exprToString(ast.Ident, sb)
+		sb.WriteString(" {\n")
+		if len(ast.Signatures) > 0 {
+			for i := range ast.Signatures {
+				writeTabs(sb, tabs + 1, tab_rune)
+				specToString(ast.Signatures[i], sb, tabs + 1)
+				sb.WriteString(";\n")
+			}
+		}
+		writeTabs(sb, tabs, tab_rune)
+		sb.WriteString("};\n")
+	case *MethodMapSpec:
+		sb.WriteString("methodmap ")
+		exprToString(ast.Ident, sb)
+		sb.WriteRune(' ')
+		if ast.Nullable {
+			sb.WriteString("__nullable__ ")
+		}
+		if ast.Parent != nil {
+			sb.WriteString("< ")
+			exprToString(ast.Parent, sb)
+			sb.WriteRune(' ')
+		}
+		sb.WriteString("{\n")
+		if len(ast.Props) > 0 {
+			for i := range ast.Props {
+				writeTabs(sb, tabs + 1, tab_rune)
+				specToString(ast.Props[i], sb, tabs + 1)
+				sb.WriteRune('\n')
+			}
+		}
+		sb.WriteRune('\n')
+		if len(ast.Methods) > 0 {
+			for i := range ast.Methods {
+				writeTabs(sb, tabs + 1, tab_rune)
+				specToString(ast.Methods[i], sb, tabs + 1)
+				sb.WriteRune('\n')
+			}
+		}
+		writeTabs(sb, tabs, tab_rune)
+		sb.WriteString("};\n")
+	case *MethodMapPropSpec:
+		sb.WriteString("property ")
+		exprToString(ast.Type, sb)
+		sb.WriteRune(' ')
+		exprToString(ast.Ident, sb)
+		sb.WriteString(" {\n")
+		wrote_getter := false
+		if ast.GetterBlock != nil || ast.GetterClass > 0 {
+			writeTabs(sb, tabs + 1, tab_rune)
+			sb.WriteString(ast.GetterClass.String())
+			sb.WriteString(" get()")
+			if ast.SetterBlock==nil {
+				sb.WriteRune(';')
+			} else {
+				sb.WriteRune(' ')
+				stmtToString(ast.GetterBlock, sb, tabs + 1)
+			}
+			wrote_getter = true
+		}
+		if ast.SetterBlock != nil || ast.SetterClass > 0 || len(ast.SetterParams) > 0 {
+			if wrote_getter {
+				sb.WriteRune('\n')
+			}
+			writeTabs(sb, tabs + 1, tab_rune)
+			sb.WriteString(ast.GetterClass.String())
+			sb.WriteString(" set(")
+			for i := range ast.SetterParams {
+				declToString(ast.SetterParams[i], sb, 0, 0)
+				if i+1 != len(ast.SetterParams) {
+					sb.WriteString(", ")
+				}
+			}
+			sb.WriteRune(')')
+			if ast.SetterBlock==nil {
+				sb.WriteRune(';')
+			} else {
+				sb.WriteRune(' ')
+				stmtToString(ast.SetterBlock, sb, tabs + 1)
+			}
+		}
+		sb.WriteRune('\n')
+		writeTabs(sb, tabs, tab_rune)
+		sb.WriteRune('}')
+	case *MethodMapMethodSpec:
+		declToString(ast.Impl, sb, tabs, 0)
+	default:
+		sb.WriteString("")
+	}
+}
+
+
+func DeclToString(e Decl) string {
+	var sb strings.Builder
+	declToString(e, &sb, 0, SP_GENFLAG_ALL)
+	return sb.String()
+}
+
+func declToString(e Decl, sb *strings.Builder, tabs, flags int) {
+	switch ast := e.(type) {
+	case *BadDecl:
+		sb.WriteString("<bad Decl>")
+	case *VarDecl:
+		if ast.ClassFlags > 0 {
+			sb.WriteString(ast.ClassFlags.String())
+			sb.WriteRune(' ')
+		}
+		specToString(ast.Type, sb, 0)
+		sb.WriteRune(' ')
+		for i := range ast.Names {
+			exprToString(ast.Names[i], sb)
+			if ast.Dims[i] != nil {
+				for _, dim := range ast.Dims[i] {
+					sb.WriteRune('[')
+					exprToString(dim, sb)
+					sb.WriteRune(']')
+				}
+			}
+			if ast.Inits[i] != nil {
+				sb.WriteString(" = ")
+				exprToString(ast.Inits[i], sb)
+			}
+			if i+1 != len(ast.Names) {
+				sb.WriteString(", ")
+			}
+		}
+		if flags & SP_GENFLAG_SEMICOLON > 0 {
+			sb.WriteRune(';')
+		}
+		if flags & SP_GENFLAG_NEWLINE > 0 {
+			sb.WriteRune('\n')
+		}
+	case *FuncDecl:
+		if ast.ClassFlags > 0 {
+			sb.WriteString(ast.ClassFlags.String())
+			sb.WriteRune(' ')
+		}
+		specToString(ast.RetType, sb, 0)
+		sb.WriteRune(' ')
+		exprToString(ast.Ident, sb)
+		sb.WriteRune('(')
+		if len(ast.Params) > 0 {
+			for i := range ast.Params {
+				declToString(ast.Params[i], sb, 0, 0)
+				if i+1 != len(ast.Params) {
+					sb.WriteString(", ")
+				}
+			}
+		}
+		sb.WriteRune(')')
+		if ast.Body != nil {
+			if IsExprNode(ast.Body) {
+				sb.WriteString(" = ")
+				exprToString(ast.Body.(Expr), sb)
+			} else if IsStmtNode(ast.Body) {
+				sb.WriteRune(' ')
+				stmtToString(ast.Body.(Stmt), sb, tabs)
+			}
+		} else {
+			sb.WriteRune(';')
+		}
+		if flags & SP_GENFLAG_NEWLINE > 0 {
+			sb.WriteRune('\n')
+		}
+	case *TypeDecl:
+		specToString(ast.Type, sb, tabs)
+	default:
+		sb.WriteString("")
+	}
+}
+
+
+func PluginToString(e Node) string {
+	if plugin, is_plugin := e.(*Plugin); !is_plugin {
+		return ""
+	} else {
+		var sb strings.Builder
+		for i := range plugin.Decls {
+			declToString(plugin.Decls[i], &sb, 0, SP_GENFLAG_ALL)
+		}
+		return sb.String()
+	}
+}
+
+func AstToString(n Node) string {
+	if IsPluginNode(n) {
+		return PluginToString(n)
+	} else if IsDeclNode(n) {
+		return DeclToString(n.(Decl))
+	} else if IsSpecNode(n) {
+		return SpecToString(n.(Spec))
+	} else if IsStmtNode(n) {
+		return StmtToString(n.(Stmt))
+	} else if IsExprNode(n) {
+		return ExprToString(n.(Expr))
+	} else {
+		return ""
 	}
 }
