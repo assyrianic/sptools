@@ -17,13 +17,13 @@ FuncDeclarator = Ident ParamList ( Initializer | BlockStmt | ';' ) .
 
 StorageClass = 'native' | 'forward' | 'const' | 'static' | 'stock' | 'public' | 'private' | 'protected' | 'readonly' | 'sealed' | 'virtual' .
 AbstractDecl = Type [ +'[]' | '&' ] .
-
-VarOrFuncSpec = *StorageClass AbstractDecl .
-SignatureSpec = 'function' AbstractDecl ParamsList .
 ```
 
 ## Specifications
 ```ebnf
+VarOrFuncSpec = *StorageClass AbstractDecl .
+SignatureSpec = 'function' AbstractDecl ParamsList .
+
 EnumSpec = 'enum' [ ident [ ':' ] [ '(' operator PrimaryExpr ')' ] ] '{' +EnumEntry '}' [ ';' ] .
 EnumEntry = Ident [ '=' Expr ] .
 
@@ -92,7 +92,7 @@ MulExpr = PrefixExpr *( ( '*' | '/' | '%' ) PrefixExpr ) .
 PrefixExpr = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new' ) PostfixExpr .
 
 TypeExpr = [ '<' ] ( ident | '[u]int[8|16|32|64|n]' | 'float' | 'char' | 'bool' ) [ '>' ] .
-ViewAsExpr = TypeExpr '(' MainExpr ')' .
+ViewAsExpr = 'view_as' '<' TypeExpr '>' '(' MainExpr ')' .
 
 NamedArgExpr = '.' AssignExpr .
 ExprList = START ListedExpr *( SEP ListedExpr ) END .
