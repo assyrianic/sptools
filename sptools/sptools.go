@@ -113,42 +113,54 @@ func MakeParser(tokens []Token) Parser {
 }
 
 
-func ParseTokens(tokens []Token) Node {
+func ParseTokens(tokens []Token, old bool) Node {
 	parser := MakeParser(tokens)
-	return parser.Start()
+	if old {
+		return parser.OldStart()
+	} else {
+		return parser.Start()
+	}
 }
 
 
-func ParseFile(filename string, flags int, macros map[string]Macro) Node {
+func ParseFile(filename string, flags int, macros map[string]Macro, old bool) Node {
 	if tokens, result := LexFile(filename, flags, macros); !result {
 		return nil
 	} else {
-		return ParseTokens(tokens)
+		return ParseTokens(tokens, old)
 	}
 }
 
-func ParseString(code string, flags int, macros map[string]Macro) Node {
+func ParseString(code string, flags int, macros map[string]Macro, old bool) Node {
 	output, good := finishLexing(Tokenize(code, ""), flags, macros)
 	if good {
-		return ParseTokens(output)
+		return ParseTokens(output, old)
 	}
 	return nil
 }
 
-func ParseExpression(code string, flags int, macros map[string]Macro) Expr {
+func ParseExpression(code string, flags int, macros map[string]Macro, old bool) Expr {
 	output, good := finishLexing(Tokenize(code, ""), flags, macros)
 	if good {
 		parser := MakeParser(output)
-		return parser.MainExpr()
+		if old {
+			return parser.OldMainExpr()
+		} else {
+			return parser.MainExpr()
+		}
 	}
 	return nil
 }
 
-func ParseStatement(code string, flags int, macros map[string]Macro) Stmt {
+func ParseStatement(code string, flags int, macros map[string]Macro, old bool) Stmt {
 	output, good := finishLexing(Tokenize(code, ""), flags, macros)
 	if good {
-		parser := Parser{ TokenReader: MakeTokenReader(output) }
-		return parser.Statement()
+		parser := MakeParser(output)
+		if old {
+			return nil
+		} else {
+			return parser.Statement()
+		}
 	}
 	return nil
 }

@@ -1645,17 +1645,18 @@ func PluginToString(e Node) string {
 }
 
 func AstToString(n Node) string {
-	if IsPluginNode(n) {
+	switch {
+	case IsPluginNode(n):
 		return PluginToString(n)
-	} else if IsDeclNode(n) {
+	case IsDeclNode(n):
 		return DeclToString(n.(Decl))
-	} else if IsSpecNode(n) {
+	case IsSpecNode(n):
 		return SpecToString(n.(Spec))
-	} else if IsStmtNode(n) {
+	case IsStmtNode(n):
 		return StmtToString(n.(Stmt))
-	} else if IsExprNode(n) {
+	case IsExprNode(n):
 		return ExprToString(n.(Expr))
-	} else {
+	default:
 		return ""
 	}
 }
