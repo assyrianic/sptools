@@ -62,7 +62,7 @@ func (parser *Parser) Start() Node {
 }
 
 // Plugin = +TopDecl .
-// TopDecl = FuncDecl | TypeDecl | VarDecl .
+// TopDecl = FuncDecl | TypeDecl | VarDecl | StaticAssertion .
 func (parser *Parser) TopDecl() Node {
 	///defer fmt.Printf("parser.TopDecl()\n")
 	plugin := new(Plugin)
@@ -89,6 +89,21 @@ func (parser *Parser) TopDecl() Node {
 				}
 			}
 			plugin.Decls = append(plugin.Decls, v_or_f_decl)
+		} else if t.Kind==TKStaticAssert {
+			stasrt := new(StaticAssert)
+			copyPosToNode(&stasrt.node, t)
+			parser.Advance(1)
+			parser.want(TKLParen, "(")
+			stasrt.A = parser.MainExpr()
+			if parser.GetToken(0).Kind==TKComma {
+				parser.Advance(1)
+				stasrt.B = parser.MainExpr()
+			}
+			parser.want(TKRParen, ")")
+			if !parser.got(TKSemi) {
+				return parser.noSemi()
+			}
+			plugin.Decls = append(plugin.Decls, stasrt)
 		} else {
 			///fmt.Printf("TopDecl :: type decl: %v\n", t)
 			type_decl := new(TypeDecl)
@@ -659,7 +674,7 @@ func (parser *Parser) Statement() Stmt {
 		}
 	case TKStaticAssert:
 		// StaticAssertStmt = 'static_assert' '(' Expr [ ',' Expr ] ')' ';' .
-		stasrt := new(StaticAssertStmt)
+		stasrt := new(StaticAssert)
 		copyPosToNode(&stasrt.node, t)
 		parser.Advance(1)
 		parser.want(TKLParen, "(")
@@ -672,7 +687,11 @@ func (parser *Parser) Statement() Stmt {
 		if !parser.got(TKSemi) {
 			return parser.noSemi()
 		}
-		return stasrt
+		
+		stasrtstmt := new(StaticAssertStmt)
+		copyPosToNode(&stasrtstmt.node, t)
+		stasrtstmt.A = stasrt
+		return stasrtstmt
 	case TKAssert:
 		// AssertStmt = 'assert' Expr ';' .
 		asrt := new(AssertStmt)

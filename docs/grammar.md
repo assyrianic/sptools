@@ -3,8 +3,9 @@
 ## Declarations
 ```ebnf
 Plugin = +TopDecl .
-TopDecl = FuncDecl | TypeDecl | VarDecl .
+TopDecl = FuncDecl | TypeDecl | VarDecl | StaticAssert .
 
+StaticAssert = 'static_assert' '(' Expr [ ',' Expr ] ')' ';' .
 VarDecl  = VarOrFuncSpec VarDeclarator .
 FuncDecl = VarOrFuncSpec FuncDeclarator .
 TypeDecl = EnumSpec | StructSpec | UsingSpec | TypeSetSpec | TypeDefSpec | MethodMapSpec .
@@ -50,7 +51,7 @@ BlockStmt = '{' *Statement '}' .
 Statement = IfStmt | DoStmt | WhileStmt | ForStmt | SwitchStmt | BlockStmt | RetStmt | AssertStmt | StaticAssertStmt | DeclStmt | DeleteStmt | ExprStmt .
 
 RetStmt = 'return' [ Expr ] ';' .
-StaticAssertStmt = 'static_assert' '(' Expr [ ',' Expr ] ')' ';' .
+StaticAssertStmt = StaticAssert .
 AssertStmt = 'assert' Expr ';' .
 DeleteStmt = 'delete' Expr ';' .
 

@@ -159,13 +159,18 @@ type (
 		ClassFlags StorageClassFlags
 		decl
 	}
+	
+	StaticAssert struct {
+		A, B Expr
+		decl
+	}
 )
 type decl struct{ node }
 func (*decl) aDecl() {}
 
 func IsDeclNode(n Node) bool {
 	switch n.(type) {
-	case *FuncDecl, *VarDecl, *TypeDecl, *BadDecl:
+	case *FuncDecl, *VarDecl, *TypeDecl, *BadDecl, *StaticAssert:
 		return true
 	}
 	return false
@@ -386,7 +391,7 @@ type (
 	
 	// static_assert(a, b);
 	StaticAssertStmt struct {
-		A, B Expr
+		A Decl
 		stmt
 	}
 )
@@ -721,7 +726,6 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 	case *StaticAssertStmt:
 		fmt.Fprintf(w, "Static Assert Statement\n")
 		PrintNode(ast.A, tabs + 1, w)
-		PrintNode(ast.B, tabs + 1, w)
 	case *DeclStmt:
 		fmt.Fprintf(w, "Declaration Statement\n")
 		PrintNode(ast.D, tabs + 1, w)
@@ -899,6 +903,10 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 	case *TypeDecl:
 		fmt.Fprintf(w, "Type Declaration\n")
 		PrintNode(ast.Type, tabs + 1, w)
+	case *StaticAssert:
+		fmt.Fprintf(w, "Static Assert\n")
+		PrintNode(ast.A, tabs + 1, w)
+		PrintNode(ast.B, tabs + 1, w)
 	case *Plugin:
 		fmt.Fprintf(w, "Plugin File\n")
 		for i := range ast.Decls {
@@ -1001,7 +1009,6 @@ func Walk(n, parent Node, visitor func(n, parent Node) bool) {
 		Walk(ast.X, n, visitor)
 	case *StaticAssertStmt:
 		Walk(ast.A, n, visitor)
-		Walk(ast.B, n, visitor)
 	case *DeclStmt:
 		Walk(ast.D, n, visitor)
 	case *TypeSpec:
@@ -1087,6 +1094,9 @@ func Walk(n, parent Node, visitor func(n, parent Node) bool) {
 		}
 	case *TypeDecl:
 		Walk(ast.Type, n, visitor)
+	case *StaticAssert:
+		Walk(ast.A, n, visitor)
+		Walk(ast.B, n, visitor)
 	case *Plugin:
 		for i := range ast.Decls {
 			Walk(ast.Decls[i], n, visitor)
@@ -1346,13 +1356,7 @@ func stmtToString(e Stmt, sb *strings.Builder, tabs int) {
 		exprToString(ast.X, sb)
 		sb.WriteString(" );")
 	case *StaticAssertStmt:
-		sb.WriteString("static_assert( ")
-		exprToString(ast.A, sb)
-		if ast.B != nil {
-			sb.WriteString(", ")
-			exprToString(ast.B, sb)
-		}
-		sb.WriteString(" );")
+		declToString(ast.A, sb, 0, SP_GENFLAG_SEMICOLON)
 	case *DeclStmt:
 		declToString(ast.D, sb, tabs, SP_GENFLAG_SEMICOLON)
 	default:
@@ -1626,6 +1630,20 @@ func declToString(e Decl, sb *strings.Builder, tabs, flags int) {
 		}
 	case *TypeDecl:
 		specToString(ast.Type, sb, tabs)
+	case *StaticAssert:
+		sb.WriteString("static_assert( ")
+		exprToString(ast.A, sb)
+		if ast.B != nil {
+			sb.WriteString(", ")
+			exprToString(ast.B, sb)
+		}
+		sb.WriteString(" )")
+		if flags & SP_GENFLAG_SEMICOLON > 0 {
+			sb.WriteRune(';')
+		}
+		if flags & SP_GENFLAG_NEWLINE > 0 {
+			sb.WriteRune('\n')
+		}
 	default:
 		sb.WriteString("")
 	}

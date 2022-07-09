@@ -98,7 +98,7 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 					t = tr.Get(0, TOKFLAG_IGNORE_ALL)
 				}
 			}
-			fmt.Printf("Apply :: func-like Macro -> arg['%v']=='%v'\n", num_arg, args[num_arg])
+			///fmt.Printf("Apply :: func-like Macro -> arg['%v']=='%v'\n", num_arg, args[num_arg])
 			if t.Kind==TKComma {
 				tr.Advance(1)
 			}

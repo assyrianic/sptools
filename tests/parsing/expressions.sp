@@ -8,6 +8,8 @@ public stock native SharedPlugin __pl_vsh2 = {
 #endif
 };
 
+static_assert("kektus");
+
 methodmap A
 {
 	public native void B();
