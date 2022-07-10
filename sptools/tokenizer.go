@@ -217,6 +217,7 @@ const (
 	
 	// & | ^ ~ << >> >>>
 	TKAnd
+	TKAndNot // &~ SPTools extension
 	TKOr
 	TKXor
 	TKCompl
@@ -242,6 +243,7 @@ const (
 	TKDivA
 	TKModA
 	TKAndA
+	TKAndNotA // &~= SPTools extension
 	TKOrA
 	TKXorA
 	TKShALA
@@ -384,6 +386,7 @@ var (
 		"..": TK2Dots,
 		"...": TKEllipses,
 		"&": TKAnd,
+		"&~": TKAndNot,
 		"|": TKOr,
 		"^": TKXor,
 		"~": TKCompl,
@@ -405,6 +408,7 @@ var (
 		"/=": TKDivA,
 		"%=": TKModA,
 		"&=": TKAndA,
+		"&~=": TKAndNotA,
 		"|=": TKOrA,
 		"^=": TKXorA,
 		"<<=": TKShALA,
@@ -553,6 +557,7 @@ var (
 		TK2Dots: "..",
 		TKEllipses: "...",
 		TKAnd: "&",
+		TKAndNot: "&~",
 		TKOr: "|",
 		TKXor: "^",
 		TKCompl: "~",
@@ -574,6 +579,7 @@ var (
 		TKDivA: "/=",
 		TKModA: "%=",
 		TKAndA: "&=",
+		TKAndNotA: "&~=",
 		TKOrA: "|=",
 		TKXorA: "^=",
 		TKShALA: "<<=",
@@ -1235,13 +1241,29 @@ func Tokenize(src, filename string) []Token {
 				goto errored_return
 			}
 		} else if c=='"' || c=='\'' {
-			t, res := s.LexString(c)
-			if res {
-				tokens = append(tokens, t)
-			} else {
+			if s.HasRuneSeq(c, c, c) {
 				col := s.Col()
-				writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "failed to tokenize string.")
-				goto errored_return
+				s.idx += 3
+				starting := s.idx
+				// raw string.
+				for s.Read(0) > 0 && !s.HasRuneSeq(c, c, c) {
+					if s.Read(0)=='\\' {
+						s.idx++
+					}
+					s.idx++
+				}
+				ending := s.idx
+				s.idx += 3
+				lexeme := string(s.runes[starting : ending])
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: col, Kind: TKStrLit})
+			} else {
+				if t, res := s.LexString(c); res {
+					tokens = append(tokens, t)
+				} else {
+					col := s.Col()
+					writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "failed to tokenize string.")
+					goto errored_return
+				}
 			}
 		} else if c=='#' {
 			if unicode.IsLetter(s.Read(1)) {

@@ -72,7 +72,7 @@ ExprStmt = Expr ';' .
 ## Expressions
 ```ebnf
 Expr = AssignExpr *( ',' AssignExpr ) .
-AssignExpr = SubMainExpr *( '['+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>' | '>>>' ] =' SubMainExpr ) .
+AssignExpr = SubMainExpr *( '['+' | '-' | '*' | '/' | '%' | '&' | '&~' | '|' | '^' | '<<' | '>>' | '>>>' ] =' SubMainExpr ) .
 SubMainExpr = LogicalOrExpr [ TernaryExpr ] .
 TernaryExpr = '?' SubMainExpr ':' Expr .
 
@@ -84,7 +84,7 @@ RelExpr = BitOrExpr *( ( '<[=]' | '>[=]' ) BitOrExpr ) .
 
 BitOrExpr = BitXorExpr *( '|' BitXorExpr ) .
 BitXorExpr = BitAndExpr *( '^' BitAndExpr ) .
-BitAndExpr = ShiftExpr *( '&' ShiftExpr ) .
+BitAndExpr = ShiftExpr *( ('&' | '&~') ShiftExpr ) .
 ShiftExpr = AddExpr *( ( '<<' | '>>' | '>>>' ) AddExpr ) .
 
 AddExpr = MulExpr *( ( '+' | '-' ) MulExpr ) .
@@ -92,17 +92,23 @@ MulExpr = PrefixExpr *( ( '*' | '/' | '%' ) PrefixExpr ) .
 
 PrefixExpr = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new' ) PostfixExpr .
 
-TypeExpr = [ '<' ] ( ident | '[u]int[8|16|32|64|n]' | 'float' | 'char' | 'bool' ) [ '>' ] .
-ViewAsExpr = TypeExpr '(' MainExpr ')' .
+TypeExpr = ( ident | '[u]int[8|16|32|64|n]' | 'float' | 'char' | 'bool' ) .
+ViewAsExpr = 'view_as' '<' TypeExpr '>' '(' MainExpr ')' .
 
 NamedArgExpr = '.' AssignExpr .
 ExprList = START ListedExpr *( SEP ListedExpr ) END .
 ListedExpr = NamedArgExpr | AssignExpr .
 
-PostfixExpr = Primary *( '.' identifier | '[' Expr ']' | '(' [ ExprList ] ')' | '::' identifier | '++' | '--' ) .
+PostfixExpr = (ViewAsExpr | Primary) *( '.' identifier | '[' Expr ']' | '(' [ ExprList ] ')' | '::' identifier | '++' | '--' ) .
 
 BoolLit = 'true' | 'false' .
 BasicLit = int_lit | rune_lit | string_lit .
 BracketExpr = '{' ExprList '}' .
-Primary = BasicLit | identifier | 'operator' op | BoolLit | 'this' | 'null' | '...' | '(' Expr ')' | BracketExpr .
+[SPTOOLS EXTENSION] FuncLit = SignatureSpec BlockStmt .
+Primary = BasicLit | identifier | 'operator' op | BoolLit | 'this' | 'null' | '...' | '(' Expr ')' | BracketExpr | FuncLit .
+
+int_lit = [0-9]+ | ('0b' | '0B') [01]+ | ('0o' | '0O') [0-7]+ | ('0x' | '0X') [0-9, a-f, A-F]+ .
+rune_lit = "'" *( letter | escape_character ) "'" .
+string_lit = "'''" *(all_characters) "'''" | '"' *( letter | escape_character ) '"' .
+identifier = ( '_' | [A-Z] | [a-z] | '$' ) *( '_' | [A-Z] | [a-z] | '$' | [0-9] ) .
 ```

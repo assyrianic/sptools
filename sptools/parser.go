@@ -919,7 +919,7 @@ func (parser *Parser) MainExpr() Expr {
 	return a
 }
 
-// AssignExpr = SubMainExpr *( '['+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>' | '>>>' ] =' SubMainExpr ) .
+// AssignExpr = SubMainExpr *( '['+' | '-' | '*' | '/' | '%' | '&' | '&~' | '|' | '^' | '<<' | '>>' | '>>>' ] =' SubMainExpr ) .
 func (parser *Parser) AssignExpr() Expr {
 	///defer fmt.Printf("parser.AssignExpr()\n")
 	a := parser.SubMainExpr()
@@ -1092,7 +1092,7 @@ func (parser *Parser) BitXorExpr() Expr {
 	return e
 }
 
-// BitAndExpr = ShiftExpr *( '&' ShiftExpr ) .
+// BitAndExpr = ShiftExpr *( ('&' | '&~') ShiftExpr ) .
 func (parser *Parser) BitAndExpr() Expr {
 	///defer fmt.Printf("parser.BitAndExpr()\n")
 	if tIsEoF := parser.GetToken(0); tIsEoF.Kind==TKEoF {
@@ -1102,7 +1102,7 @@ func (parser *Parser) BitAndExpr() Expr {
 	}
 	
 	e := parser.ShiftExpr()
-	for t := parser.GetToken(0); t.Kind==TKAnd; t = parser.GetToken(0) {
+	for t := parser.GetToken(0); t.Kind==TKAnd || t.Kind==TKAndNot; t = parser.GetToken(0) {
 		b := new(BinExpr)
 		copyPosToNode(&b.node, t)
 		b.L = e
@@ -1415,6 +1415,12 @@ func (parser *Parser) PrimaryExpr() Expr {
 		null := new(NullExpr)
 		copyPosToNode(&null.node, prim)
 		ret_expr = null
+	case TKFunction:
+		func_lit := new(FuncLit)
+		copyPosToNode(&func_lit.node, prim)
+		func_lit.Sig  = parser.DoFuncSignature()
+		func_lit.Body = parser.DoBlock()
+		return func_lit
 	default:
 		parser.syntaxErr("bad primary expression '%s'", prim.Lexeme)
 		bad := new(BadExpr)

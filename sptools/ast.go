@@ -5,6 +5,7 @@ import (
 	"fmt"
 	///"time"
 	"strings"
+	"strconv"
 )
 
 
@@ -440,6 +441,13 @@ type (
 		expr
 	}
 	
+	// function type (args) {}
+	FuncLit struct {
+		Sig  Spec // *SignatureSpec
+		Body Stmt // *BlockStmt
+		expr
+	}
+	
 	// { a, b, c }
 	BracketExpr struct {
 		Exprs []Expr
@@ -587,6 +595,10 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 		fmt.Fprintf(w, "'null' expr\n")
 	case *BasicLit:
 		fmt.Fprintf(w, "Basic Lit :: Value: %q - Kind: %q\n", ast.Value, LitKindToStr[ast.Kind])
+	case *FuncLit:
+		fmt.Fprintf(w, "Function Lit\n")
+		PrintNode(ast.Sig, tabs + 1, w)
+		PrintNode(ast.Body, tabs + 1, w)
 	case *ThisExpr:
 		fmt.Fprintf(w, "'this' expr\n")
 	case *Name:
@@ -924,6 +936,9 @@ func Walk(n, parent Node, visitor func(n, parent Node) bool) {
 	}
 	
 	switch ast := n.(type) {
+	case *FuncLit:
+		Walk(ast.Sig, n, visitor)
+		Walk(ast.Body, n, visitor)
 	case *CallExpr:
 		Walk(ast.Func, n, visitor)
 		if ast.ArgList != nil {
@@ -1126,13 +1141,24 @@ func exprToString(e Expr, sb *strings.Builder) {
 		sb.WriteString("null")
 	case *BasicLit:
 		switch ast.Kind {
-		case StringLit:
-			sb.WriteString("\"" + ast.Value + "\"")
-		case CharLit:
-			sb.WriteString("'" + ast.Value + "'")
+		case StringLit, CharLit:
+			q := Ternary[rune](ast.Kind==StringLit, '"', '\'')
+			sb.WriteRune(q)
+			for _, c := range []rune(ast.Value) {
+				if strconv.IsGraphic(c) {
+					sb.WriteRune(c)
+				} else {
+					s := strconv.QuoteRuneToASCII(c)
+					sb.WriteString(s[1 : len(s)-1])
+				}
+			}
+			sb.WriteRune(q)
 		default:
 			sb.WriteString(ast.Value)
 		}
+	case *FuncLit:
+		specToString(ast.Sig, sb, 0)
+		stmtToString(ast.Body, sb, 1)
 	case *ThisExpr:
 		sb.WriteString("this")
 	case *Name:
@@ -1142,8 +1168,20 @@ func exprToString(e Expr, sb *strings.Builder) {
 			exprToString(ast.X, sb)
 			sb.WriteString(TokenToStr[ast.Kind])
 		} else {
-			sb.WriteString(TokenToStr[ast.Kind])
-			exprToString(ast.X, sb)
+			switch ast.Kind {
+			case TKSizeof:
+				sb.WriteString(TokenToStr[ast.Kind])
+				sb.WriteRune('(')
+				exprToString(ast.X, sb)
+				sb.WriteRune(')')
+			case TKDefined, TKNew:
+				sb.WriteString(TokenToStr[ast.Kind])
+				sb.WriteRune(' ')
+				exprToString(ast.X, sb)
+			default:
+				sb.WriteString(TokenToStr[ast.Kind])
+				exprToString(ast.X, sb)
+			}
 		}
 	case *CallExpr:
 		exprToString(ast.Func, sb)
@@ -1177,9 +1215,21 @@ func exprToString(e Expr, sb *strings.Builder) {
 		exprToString(ast.X, sb)
 		sb.WriteRune(')')
 	case *BinExpr:
-		exprToString(ast.L, sb)
-		sb.WriteString(" " + TokenToStr[ast.Kind] + " ")
-		exprToString(ast.R, sb)
+		// bitwise ops need parentheses.
+		switch ast.Kind {
+		case TKAnd, TKOr, TKXor, TKShAL, TKShAR, TKShLR:
+			sb.WriteRune('(')
+			exprToString(ast.L, sb)
+			sb.WriteRune(')')
+			sb.WriteString(" " + TokenToStr[ast.Kind] + " ")
+			sb.WriteRune('(')
+			exprToString(ast.R, sb)
+			sb.WriteRune(')')
+		default:
+			exprToString(ast.L, sb)
+			sb.WriteString(" " + TokenToStr[ast.Kind] + " ")
+			exprToString(ast.R, sb)
+		}
 	case *TernaryExpr:
 		sb.WriteRune('(')
 		exprToString(ast.A, sb)
@@ -1278,8 +1328,8 @@ func stmtToString(e Stmt, sb *strings.Builder, tabs int) {
 		if ast.Init != nil {
 			// could be Decl or Expr
 			if _, is_decl := ast.Init.(*VarDecl); is_decl {
+				declToString(ast.Init.(Decl), sb, 0, 0)
 			} else {
-				
 				exprToString(ast.Init.(Expr), sb)
 			}
 		}

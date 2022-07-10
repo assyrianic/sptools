@@ -8,17 +8,21 @@ public stock native SharedPlugin __pl_vsh2 = {
 #endif
 };
 
-static_assert("kektus");
 
-methodmap A
-{
+static_assert('''
+kektus''');
+
+methodmap A {
 	public native void B();
 }
 
-int a = access ? blacklist > 0 ? "❎" : "☑" : "🔒";
+int a = access ? function int(int a){ return a * a; }(10) > 0 ? "❎" : "☑" : "🔒";
 
 void InitNatives()
 {
+	CreateNative("name", function any(Handle plugin, int numParams){
+		return( FF2Player(GetNativeCell(1), GetNativeCell(2)) );
+	});
 	/// Natives For FF2GameMode
 	#define CREATE_NATIVE(%0)    CreateNative("FF2GameMode."...#%0   , Native_FF2GameMode_%0)
 

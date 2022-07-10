@@ -18,7 +18,8 @@ func main() {
 		if plugin_node := SPTools.ParseTokens(plugin_tokens, false); plugin_node != nil {
 			node_output, _ := os.Create("sptools_node_output.txt")
 			SPTools.PrintNode(plugin_node, 0, node_output)
-			fmt.Printf("'%s'\n", SPTools.AstToString(plugin_node))
+			ast_output, _ := os.Create("sptools_node_pretty_print.txt")
+			fmt.Fprintf(ast_output, "%s\n", SPTools.AstToString(plugin_node))
 		} else {
 			fmt.Printf("failed to parse\n")
 		}
