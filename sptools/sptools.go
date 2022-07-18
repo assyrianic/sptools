@@ -21,10 +21,58 @@ const (
 )
 
 
-func makeMsg(filename, msgtype, color string, line, col *uint32, msg_fmt string, args ...any) string {
+/* Example:
+ * {error | warning} [{ErrCode}]: {Msg}
+ * --> {file, line, col}
+ * Line1 | Code1
+ * Span1 | ^^^^^ note1
+ * Line2 | Code2
+ * Span1 | ----- note2
+ * ...
+ * LineN | CodeN
+ * SpanN | ~~~~~ noteN
+ */
+
+/*
+ * compute an array of the line start offsets
+ */
+
+type MsgSpan struct {
+	// TODO: have MsgSpan hold filename?
+	spans []Span
+	notes []string
+	code *[]string
+}
+
+
+func MakeMsgSpan(lines *[]string) MsgSpan {
+	return MsgSpan{ code: lines }
+}
+
+func (m *MsgSpan) PrepNote(span Span, note_fmt string, args ...any) {
+	m.spans = append(m.spans, span)
+	m.notes = append(m.notes, fmt.Sprintf(note_fmt, args...))
+}
+
+func (m *MsgSpan) PurgeNotes() {
+	m.spans = nil
+	m.notes = nil
+}
+
+func (m *MsgSpan) Report(msgtype, errcode, color, msg_fmt, filename string, line, col *uint16, args ...any) string {
 	var sb strings.Builder
+	sb.WriteString(color)
+	sb.WriteString(msgtype)
+	if errcode != "" {
+		sb.WriteRune('[')
+		sb.WriteString(errcode)
+		sb.WriteRune(']')
+	}
+	sb.WriteString(COLOR_RESET)
+	sb.WriteString(": " + fmt.Sprintf(msg_fmt, args...))
 	if filename != "" {
-		sb.WriteString("(")
+		sb.WriteRune('\n')
+		sb.WriteString("--> ")
 		sb.WriteString(filename)
 		if line != nil {
 			sb.WriteString(fmt.Sprintf(":%d", *line))
@@ -32,28 +80,56 @@ func makeMsg(filename, msgtype, color string, line, col *uint32, msg_fmt string,
 		if col != nil {
 			sb.WriteString(fmt.Sprintf(":%d", *col))
 		}
-		sb.WriteString(") ")
 	}
-	sb.WriteString(fmt.Sprintf("%s%s%s: **** ", color, msgtype, COLOR_RESET))
-	sb.WriteString(fmt.Sprintf(msg_fmt, args...))
-	sb.WriteString(" ****")
+	
+	if len(m.spans) > 0 {
+		sb.WriteRune('\n')
+		largest := 0
+		for _, l := range m.spans {
+			if largest < int(l.LineEnd) {
+				largest = int(l.LineEnd)
+			}
+		}
+		big_line_str := fmt.Sprintf("%d", largest)
+		largest_span := len(big_line_str) + 1
+		span_write := func (sb *strings.Builder, span int, c rune) {
+			for i := 0; i < span; i++ {
+				sb.WriteRune(c)
+			}
+		}
+		span_write(&sb, largest_span, ' ')
+		sb.WriteRune('|')
+		sb.WriteRune('\n')
+		for i := range m.spans {
+			span := m.spans[i]
+			for line := span.LineStart; line <= span.LineEnd; line++ {
+				line_num_str := fmt.Sprintf("%d", line)
+				sb.WriteString(line_num_str)
+				line_num_len := len(line_num_str)
+				span_write(&sb, largest_span - line_num_len, ' ')
+				sb.WriteRune('|')
+				code_line := (*m.code)[line - 1]
+				sb.WriteString(code_line)
+				sb.WriteRune('\n')
+			}
+			note := m.notes[i]
+			span_write(&sb, largest_span, ' ')
+			sb.WriteRune('|')
+			span_write(&sb, int(span.ColStart), ' ')
+			span_write(&sb, int(span.ColEnd - span.ColStart), '^')
+			sb.WriteRune(' ')
+			sb.WriteString(COLOR_CYAN);
+			sb.WriteString(note);
+			sb.WriteString(COLOR_RESET)
+		}
+	}
 	return sb.String()
 }
 
-// prints out a message like: "(filename:line:col) msgtype: **** msg_fmt ****" to io.Writer
-// 'msg_cnt, line, col' can be nil
-func writeMsg(msg_cnt *uint32, w io.Writer, filename, msgtype, color string, line, col *uint32, msg_fmt string, args ...any) {
-	fmt.Fprintf(w, "%s\n", makeMsg(filename, msgtype, color, line, col, msg_fmt, args...))
+func SpewReport(w io.Writer, message string, msg_cnt *uint32) {
+	fmt.Fprintf(w, "%s\n", message)
 	if msg_cnt != nil {
 		*msg_cnt++
-	}
-}
-
-func loadFile(filename string) (string, string) {
-	if text, read_err := ioutil.ReadFile(filename); read_err==nil {
-		return string(text), "none"
-	} else {
-		return "", read_err.Error()
 	}
 }
 
@@ -75,12 +151,25 @@ const (
 	LEXFLAG_ALL            = -1
 )
 
+
+func loadFile(filename string) (string, string) {
+	if text, read_err := ioutil.ReadFile(filename); read_err==nil {
+		code := string(text)
+		code = strings.ReplaceAll(code, "\r\n", "\n")
+		code = strings.ReplaceAll(code, "\r", "\n")
+		code = strings.ReplaceAll(code, "\t", "    ")
+		return code, "none"
+	} else {
+		return "", read_err.Error()
+	}
+}
+
 // Lexes and preprocesses a file, returning its token array.
-func LexFile(filename string, flags int, macros map[string]Macro) ([]Token, bool) {
+func LexFile(filename string, flags int, macros map[string]Macro) (*TokenReader, bool) {
 	code, err_str := loadFile(filename)
 	if len(code) <= 0 {
-		writeMsg(nil, os.Stdout, "sptools", "IO error", COLOR_RED, nil, nil, "file error:: '%s'.", err_str)
-		return []Token{}, false
+		fmt.Fprintf(os.Stdout, "sptools %sIO error%s: **** file error:: '%s'. ****\n", COLOR_RED, COLOR_RESET, err_str)
+		return &TokenReader{}, false
 	}
 	if flags & LEXFLAG_SM_INCLUDE > 0 {
 		code = "#include <sourcemod>\n" + code
@@ -88,33 +177,33 @@ func LexFile(filename string, flags int, macros map[string]Macro) ([]Token, bool
 	return finishLexing(Tokenize(code, filename), flags, macros)
 }
 
-func LexCodeString(code string, flags int, macros map[string]Macro) ([]Token, bool) {
+func LexCodeString(code string, flags int, macros map[string]Macro) (*TokenReader, bool) {
 	return finishLexing(Tokenize(code, ""), flags, macros)
 }
 
-func finishLexing(tokens []Token, flags int, macros map[string]Macro) ([]Token, bool) {
+func finishLexing(tr *TokenReader, flags int, macros map[string]Macro) (*TokenReader, bool) {
 	if flags & LEXFLAG_PREPROCESS > 0 {
-		if output, res := Preprocess(tokens, flags, macros); res {
-			tokens = output
+		if output, res := Preprocess(tr, flags, macros); res {
+			*tr = *output
 		} else {
-			return tokens, false
+			return nil, false
 		}
 	}
-	tokens = ConcatStringLiterals(tokens)
+	tr = ConcatStringLiterals(tr)
 	if flags & LEXFLAG_STRIP_COMMENTS > 0 {
-		tokens = RemoveComments(tokens)
+		tr = RemoveComments(tr)
 	}
-	tokens = StripSpaceTokens(tokens, flags & LEXFLAG_NEWLINES > 0)
-	return tokens, true
+	tr = StripSpaceTokens(tr, flags & LEXFLAG_NEWLINES > 0)
+	return tr, true
 }
 
-func MakeParser(tokens []Token) Parser {
-	return Parser{ TokenReader: MakeTokenReader(tokens) }
+func MakeParser(tr *TokenReader) Parser {
+	return Parser{ TokenReader: tr }
 }
 
 
-func ParseTokens(tokens []Token, old bool) Node {
-	parser := MakeParser(tokens)
+func ParseTokens(tr *TokenReader, old bool) Node {
+	parser := MakeParser(tr)
 	if old {
 		return parser.OldStart()
 	} else {
@@ -124,10 +213,10 @@ func ParseTokens(tokens []Token, old bool) Node {
 
 
 func ParseFile(filename string, flags int, macros map[string]Macro, old bool) Node {
-	if tokens, result := LexFile(filename, flags, macros); !result {
+	if tr, result := LexFile(filename, flags, macros); !result {
 		return nil
 	} else {
-		return ParseTokens(tokens, old)
+		return ParseTokens(tr, old)
 	}
 }
 

@@ -593,11 +593,25 @@ var (
 )
 
 
+type Span struct {
+	LineStart, ColStart, LineEnd, ColEnd uint16
+}
+
+func MakeSpan(line_start, col_start, line_end, col_end uint16) Span {
+	return Span{
+		LineStart: line_start,
+		ColStart: col_start,
+		LineEnd: line_end,
+		ColEnd: col_end,
+	}
+}
+
+
 type Token struct {
-	Lexeme    string
-	Path     *string
-	Line, Col uint32
-	Kind      TokenKind
+	Span
+	Lexeme string
+	Path *string
+	Kind TokenKind
 }
 
 func (tok Token) IsKeyword() bool {
@@ -659,17 +673,18 @@ func (tok Token) KindToString() string {
 }
 
 func (tok Token) ToString() string {
-	return fmt.Sprintf("Token:: lexeme: %q | kind: %q | line: '%d', col: '%d' | file: %q", tok.Lexeme, TokenToStr[tok.Kind], tok.Line, tok.Col, *tok.Path)
+	return fmt.Sprintf("Token:: lexeme: %q | kind: %q | position: '%+v' | file: %q", tok.Lexeme, TokenToStr[tok.Kind], tok.Span, *tok.Path)
 }
 
 
 type TokenReader struct {
+	MsgSpan
 	Tokens []Token
 	Idx      int
 }
 
-func MakeTokenReader(tokens []Token) TokenReader {
-	return TokenReader{ Tokens: tokens, Idx: 0 }
+func MakeTokenReader(tokens []Token, lines *[]string) TokenReader {
+	return TokenReader{ MsgSpan: MakeMsgSpan(lines), Tokens: tokens }
 }
 
 const (
@@ -741,21 +756,15 @@ func (tr *TokenReader) SkipTokenKinds(kinds ...TokenKind) {
 		}
 	}
 }
-/*
-func (tr *TokenReader) SubsetTokens(lower int) []Token {
-	
-}
 
-func (tr *TokenReader) MakeReaderFromSubset(lower int) TokenReader {
-	return MakeTokenReader(tr.SubsetTokens(lower))
-}
-*/
 
 type Scanner struct {
+	MsgSpan
 	runes       []rune
 	filename      string
 	idx, start    int
-	line, numMsgs uint32
+	numMsgs uint32
+	line uint16
 }
 
 func (s Scanner) Read(i int) rune {
@@ -774,12 +783,12 @@ func (s Scanner) NumMsgs() uint32 {
 	return s.numMsgs
 }
 
-func (s Scanner) Line() uint32 {
+func (s Scanner) Line() uint16 {
 	return s.line
 }
 
-func (s Scanner) Col() uint32 {
-	return uint32(s.idx - s.start)
+func (s Scanner) Col() uint16 {
+	return uint16(s.idx - s.start)
 }
 
 func (s Scanner) HasRuneSeq(runes ...rune) bool {
@@ -799,24 +808,12 @@ func (s *Scanner) SkipSpace() {
 	}
 }
 
-func (s *Scanner) stripCarriageReturn() {
-	i, limit := 0, len(s.runes)
-	for i < limit {
-		if s.runes[i]=='\r' {
-			s.runes = append(s.runes[:i], s.runes[i+1:]...)
-			limit = len(s.runes)
-			i = 0
-			continue
-		}
-		i++
-	}
-}
-
 
 func (s *Scanner) LexBinary() (string, bool) {
 	if s.Read(0) != '0' || (s.Read(1) != 'b' && s.Read(1) != 'B') {
 		return "", false
 	}
+	start_col, start_line := s.Col(), s.line
 	start := s.idx
 	s.idx += 2
 	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-'; chr = s.Read(0) {
@@ -829,9 +826,8 @@ func (s *Scanner) LexBinary() (string, bool) {
 			}
 			s.idx++
 		default:
-			col := s.Col()
+			s.MsgSpan.PrepNote(MakeSpan(start_line, start_col, s.line, s.Col()), "bad digit %c in binary literal", chr)
 			s.idx = start
-			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in binary literal", chr)
 			return "", false
 		}
 	}
@@ -842,6 +838,7 @@ func (s *Scanner) LexHex() (string, bool) {
 	if s.Read(0) != '0' || (s.Read(1) != 'x' && s.Read(1) != 'X') {
 		return "", false
 	}
+	start_col, start_line := s.Col(), s.line
 	start := s.idx
 	s.idx += 2
 	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='-'; chr = s.Read(0) {
@@ -861,9 +858,8 @@ func (s *Scanner) LexHex() (string, bool) {
 			}
 			s.idx++
 		default:
-			col := s.Col()
+			s.MsgSpan.PrepNote(MakeSpan(start_line, start_col, s.line, s.Col()), "bad digit %c in hex literal", chr)
 			s.idx = start
-			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in hex literal", chr)
 			return "", false
 		}
 	}
@@ -874,6 +870,7 @@ func (s *Scanner) LexOctal() (string, bool) {
 	if s.Read(0) != '0' || (s.Read(1) != 'o' && s.Read(1) != 'O') {
 		return "", false
 	}
+	start_col, start_line := s.Col(), s.line
 	start := s.idx
 	s.idx += 2
 	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep; chr = s.Read(0) {
@@ -886,9 +883,8 @@ func (s *Scanner) LexOctal() (string, bool) {
 			}
 			s.idx++
 		default:
-			col := s.Col()
+			s.MsgSpan.PrepNote(MakeSpan(start_line, start_col, s.line, s.Col()), "bad digit %c in octal literal", chr)
 			s.idx = start
-			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in octal literal", chr)
 			return "", false
 		}
 	}
@@ -900,6 +896,7 @@ func (s *Scanner) LexDecimal() (string, bool, bool) {
 	if s.Read(0)==0 {
 		return "", false, false
 	}
+	start_col, start_line := s.Col(), s.line
 	start := s.idx
 	var got_num bool
 	for chr := s.Read(0); isAlphaNum(chr) || chr==DigitSep || chr=='.' || chr=='-'; chr = s.Read(0) {
@@ -925,9 +922,8 @@ func (s *Scanner) LexDecimal() (string, bool, bool) {
 			}
 			return s.LexFloat(start, got_num)
 		default:
-			col := s.Col()
+			s.MsgSpan.PrepNote(MakeSpan(start_line, start_col, s.line, s.Col()), "bad digit %c in decimal literal", chr)
 			s.idx = start
-			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in decimal literal", chr)
 			return "", false, false
 		}
 	}
@@ -938,6 +934,7 @@ func (s *Scanner) LexFloat(starter int, has_num bool) (string, bool, bool) {
 	if s.Read(0)==0 {
 		return "", false, true
 	}
+	start_col, start_line := s.Col(), s.line
 	s.idx = starter
 	start, got_num := s.idx, has_num
 	var got_E, num_after_E, got_math bool
@@ -958,17 +955,15 @@ func (s *Scanner) LexFloat(starter int, has_num bool) (string, bool, bool) {
 			s.idx++
 		case '.':
 			if !got_num {
-				col := s.Col()
+				s.MsgSpan.PrepNote(MakeSpan(start_line, start_col, s.line, s.Col()), "'.' in float literal before numbers.")
 				s.idx = start
-				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "'.' in float literal before numbers.")
 				return "", false, true
 			}
 			s.idx++
 		case 'e':
 			if got_E {
-				col := s.Col()
+				s.MsgSpan.PrepNote(MakeSpan(start_line, start_col, s.line, s.Col()), "too many Es in float.")
 				s.idx = start
-				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "too many Es in float.")
 				return "", false, true
 			}
 			got_E = true
@@ -977,24 +972,22 @@ func (s *Scanner) LexFloat(starter int, has_num bool) (string, bool, bool) {
 			if num_after_E || got_math {
 				return "", true, true
 			} else if got_E && !unicode.IsDigit(s.Read(1)) {
-				col := s.Col()
+				s.MsgSpan.PrepNote(MakeSpan(start_line, start_col, s.line, s.Col()), "missing numbers after +/- in E exponent.")
 				s.idx = start
-				writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "missing numbers after +/- in E exponent.")
 				return "", false, true
 			}
 			got_math = true
 			s.idx++
 		default:
-			col := s.Col()
+			s.MsgSpan.PrepNote(MakeSpan(start_line, start_col, s.line, s.Col()), "bad digit %c in float literal.", chr)
 			s.idx = start
-			writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "bad digit %c in float literal.", chr)
 			return "", false, true
 		}
 	}
 	if got_E && !num_after_E {
-		col := s.Col()
+		err_span := MakeSpan(start_line, start_col, s.line, s.Col())
+		s.MsgSpan.PrepNote(err_span, "exponent E is missing numbers in float literal.")
 		s.idx = start
-		writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "exponent E is missing numbers in float literal.")
 		return "", false, true
 	}
 	return string(s.runes[start : s.idx]), true, true
@@ -1004,10 +997,11 @@ func (s *Scanner) LexString(quote rune) (Token, bool) {
 	if s.Read(0)==0 {
 		return Token{}, false
 	}
-	col, starting_line, q := s.Col(), s.line, quote
+	start_line, start_col := s.line, s.Col()
+	q := quote
 	s.idx++
 	var b strings.Builder
-	for s.Read(0) != q {
+	for s.Read(0) != 0 && s.Read(0) != q {
 		if s.Read(0)=='\\' {
 			s.idx++
 			switch esc := s.Read(0); esc {
@@ -1131,21 +1125,23 @@ func (s *Scanner) LexString(quote rune) (Token, bool) {
 	}
 	s.idx++
 	kind := Ternary[TokenKind](q=='"', TKStrLit, TKCharLit)
-	return Token{Lexeme: b.String(), Path: &s.filename, Line: starting_line, Col: col, Kind: kind}, true
+	span := MakeSpan(start_line, start_col, s.line, s.Col())
+	return Token{Lexeme: b.String(), Path: &s.filename, Span: span, Kind: kind}, true
 }
 
 
-func Tokenize(src, filename string) []Token {
+func Tokenize(src, filename string) *TokenReader {
 	var (
 		tokens []Token
 		in_preproc bool
 	)
+	lines := strings.Split(src, "\n")
 	s := Scanner{
+		MsgSpan: MakeMsgSpan(&lines),
 		runes: ([]rune)(src),
 		filename: filename,
 		line: 1,
 	}
-	s.stripCarriageReturn()
 	for s.Read(0) > 0 {
 		///fmt.Printf("Read: '%d' | '%c'\n", s.Read(0), s.Read(0))
 		///time.Sleep(50 * time.Millisecond)
@@ -1155,7 +1151,9 @@ func Tokenize(src, filename string) []Token {
 			switch c {
 			case '\n':
 				in_preproc = false
-				tokens = append(tokens, Token{Lexeme: "\n", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKNewline})
+				col := s.Col()
+				span := MakeSpan(s.line, col, s.line+1, col+1)
+				tokens = append(tokens, Token{Lexeme: "\n", Path: &filename, Span: span, Kind: TKNewline})
 				s.line++
 				s.start = s.idx
 			case ' ': // eat up the space tokens as much as possible.
@@ -1163,13 +1161,17 @@ func Tokenize(src, filename string) []Token {
 					s.idx++
 				}
 				lexeme := string(s.runes[starting : s.idx])
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKSpace})
+				col := s.Col()
+				span := MakeSpan(s.line, col, s.line+1, col+1)
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKSpace})
 			case '\t':
 				for s.Read(0) != 0 && s.Read(0)==c {
 					s.idx++
 				}
 				lexeme := string(s.runes[starting : s.idx])
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKTab})
+				col := s.Col()
+				span := MakeSpan(s.line, col, s.line+1, col+1)
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKTab})
 			}
 		} else if c=='\\' {
 			for s.Read(0) != 0 && s.Read(0) != '\n' {
@@ -1180,22 +1182,22 @@ func Tokenize(src, filename string) []Token {
 				s.line++
 				s.start = s.idx
 			}
-			///tokens = append(tokens, Token{Lexeme: "\\", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKBackSlash})
 		} else if unicode.IsLetter(c) || c=='_' {
 			// handle identifiers & keywords.
-			col, starting := s.Col(), s.idx
+			start_line, start_col, starting := s.line, s.Col(), s.idx
 			for isIden(s.Read(0)) {
 				s.idx++
 			}
 			lexeme := string(s.runes[starting : s.idx])
+			span := MakeSpan(start_line, start_col, s.line, s.Col())
 			if tkind, found := Keywords[lexeme]; found {
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: col, Kind: tkind})
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: tkind})
 			} else {
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: col, Kind: TKIdent})
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKIdent})
 			}
 		} else if c=='/' && s.Read(1)=='/' {
 			// single line comment.
-			col, starting, starting_line := s.Col(), s.idx, s.line
+			start_line, start_col, starting := s.line, s.Col(), s.idx
 			s.idx += 2
 			for s.Read(0) != 0 && s.Read(0) != '\n' {
 				if s.Read(0)=='\\' {
@@ -1206,10 +1208,11 @@ func Tokenize(src, filename string) []Token {
 				s.idx++
 			}
 			lexeme := string(s.runes[starting : s.idx])
-			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
+			span := MakeSpan(start_line, start_col, s.line, s.Col())
+			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKComment})
 		} else if c=='/' && s.Read(1)=='*' {
 			// multi-line comment.
-			col, starting, starting_line := s.Col(), s.idx, s.line
+			start_line, start_col, starting := s.line, s.Col(), s.idx
 			s.idx += 2
 			stop := false
 			for s.Read(0) != 0 && !stop {
@@ -1223,31 +1226,40 @@ func Tokenize(src, filename string) []Token {
 				s.idx++
 			}
 			lexeme := string(s.runes[starting : s.idx])
-			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKComment})
+			span := MakeSpan(start_line, start_col, s.line, s.Col())
+			tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKComment})
 		} else if unicode.IsNumber(c) {
 			// handle numbers.
-			col, starting_line := s.Col(), s.line
+			start_col, start_line := s.Col(), s.line
 			if lexeme, result := s.LexBinary(); result {
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKIntLit})
+				span := MakeSpan(start_line, start_col, s.line, s.Col())
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKIntLit})
 			} else if lexeme, result = s.LexHex(); result {
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKIntLit})
+				span := MakeSpan(start_line, start_col, s.line, s.Col())
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKIntLit})
 			} else if lexeme, result = s.LexOctal(); result {
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: TKIntLit})
+				span := MakeSpan(start_line, start_col, s.line, s.Col())
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKIntLit})
 			} else if nlexeme, res, is_float := s.LexDecimal(); res {
+				span := MakeSpan(start_line, start_col, s.line, s.Col())
 				kind := Ternary[TokenKind](is_float, TKFloatLit, TKIntLit)
-				tokens = append(tokens, Token{Lexeme: nlexeme, Path: &filename, Line: starting_line, Col: col, Kind: kind})
+				tokens = append(tokens, Token{Lexeme: nlexeme, Path: &filename, Span: span, Kind: kind})
 			} else {
-				writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "failed to tokenize number.")
+				SpewReport(os.Stdout, s.MsgSpan.Report("token error", "", COLOR_RED, "failed to tokenize number.", filename, &s.line, &start_col), &s.numMsgs)
+				s.MsgSpan.PurgeNotes()
 				goto errored_return
 			}
 		} else if c=='"' || c=='\'' {
 			if s.HasRuneSeq(c, c, c) {
-				col := s.Col()
+				start_line, start_col := s.line, s.Col()
 				s.idx += 3
 				starting := s.idx
 				// raw string.
 				for s.Read(0) > 0 && !s.HasRuneSeq(c, c, c) {
-					if s.Read(0)=='\\' {
+					if s.Read(0)=='\n' {
+						s.line++
+						s.start = s.idx
+					} else if s.Read(0)=='\\' {
 						s.idx++
 					}
 					s.idx++
@@ -1255,41 +1267,48 @@ func Tokenize(src, filename string) []Token {
 				ending := s.idx
 				s.idx += 3
 				lexeme := string(s.runes[starting : ending])
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: col, Kind: TKStrLit})
+				span := MakeSpan(start_line, start_col, s.line, s.Col())
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: TKStrLit})
 			} else {
 				if t, res := s.LexString(c); res {
 					tokens = append(tokens, t)
 				} else {
 					col := s.Col()
-					writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "failed to tokenize string.")
+					SpewReport(os.Stdout, s.MsgSpan.Report("token error", "", COLOR_RED, "failed to tokenize string.", filename, &s.line, &col), &s.numMsgs)
+					s.MsgSpan.PurgeNotes()
 					goto errored_return
 				}
 			}
 		} else if c=='#' {
 			if unicode.IsLetter(s.Read(1)) {
+				start_line, start_col := s.line, s.Col()
 				s.idx++
-				col, starting := s.Col(), s.idx
+				starting := s.idx
 				for isIden(s.Read(0)) {
 					s.idx++
 				}
 				lexeme := "#" + string(s.runes[starting : s.idx])
 				if kind, found := Keywords[lexeme]; found {
-					tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: col, Kind: kind})
+					span := MakeSpan(start_line, start_col, s.line, s.Col())
+					tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: kind})
 					in_preproc = true
 					switch lexeme {
 					case "#error", "#warning", "#pragma":
 						s.SkipSpace()
+						starting_line, starting_col := s.line, s.Col()
 						starting := s.idx
 						for s.Read(0) != 0 && s.Read(0) != '\n' {
 							s.idx++
 						}
 						msg := string(s.runes[starting : s.idx])
+						str_span := MakeSpan(starting_line, starting_col, s.line, s.Col())
 						if len(msg)==0 {
-							col := s.Col()
-							writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "'%s' directive is missing message argument.", lexeme)
+							s.MsgSpan.PrepNote(str_span, "is missing here.")
+							SpewReport(os.Stdout, s.MsgSpan.Report("token error", "", COLOR_RED, "'%s' directive is missing message argument.", filename, &s.line, &str_span.ColStart, lexeme), &s.numMsgs)
+							s.MsgSpan.PurgeNotes()
 							goto errored_return
 						}
-						tokens = append(tokens, Token{Lexeme: msg, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKStrLit})
+						tokens = append(tokens, Token{Lexeme: msg, Path: &filename, Span: str_span, Kind: TKStrLit})
 					/**
 					case "#include", "#tryinclude":
 						s.SkipSpace()
@@ -1301,22 +1320,30 @@ func Tokenize(src, filename string) []Token {
 						tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKStrLit})*/
 					}
 				} else {
-					writeMsg(&s.numMsgs, os.Stdout, s.filename, "lex error", COLOR_RED, &s.line, &col, "unknown preprocessor directive: '%s'", lexeme)
+					span := MakeSpan(start_line, start_col, s.line, s.Col())
+					s.MsgSpan.PrepNote(span, "")
+					SpewReport(os.Stdout, s.MsgSpan.Report("lex error", "", COLOR_RED, "unknown preprocessor directive: '%s'", filename, &start_line, &start_col, lexeme), &s.numMsgs)
+					s.MsgSpan.PurgeNotes()
 					goto errored_return
 				}
 			} else if in_preproc && s.Read(1)=='%' && unicode.IsNumber(s.Read(2)) {
+				start_line, start_col := s.line, s.Col()
 				s.idx += 2
 				lexeme := string(s.Read(0))
 				s.idx++
-				tokens = append(tokens, Token{Lexeme: "#%" + lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKHashTok})
+				span := MakeSpan(start_line, start_col, s.line, s.Col())
+				tokens = append(tokens, Token{Lexeme: "#%" + lexeme, Path: &filename, Span: span, Kind: TKHashTok})
 			}
 		} else if in_preproc && c=='%' && unicode.IsNumber(s.Read(1)) {
+			start_line, start_col := s.line, s.Col()
 			s.idx++
 			lexeme := string(s.Read(0))
 			s.idx++
-			tokens = append(tokens, Token{Lexeme: "%" + lexeme, Path: &filename, Line: s.line, Col: s.Col(), Kind: TKMacroArg})
+			span := MakeSpan(start_line, start_col, s.line, s.Col())
+			tokens = append(tokens, Token{Lexeme: "%" + lexeme, Path: &filename, Span: span, Kind: TKMacroArg})
 		} else {
-			col, starting, starting_line := s.Col(), s.idx, s.line
+			start_line, start_col := s.line, s.Col()
+			starting := s.idx
 			oper_size, oper_key, got_match := 0, "", false
 			for key := range Opers {
 				// Match largest operator first.
@@ -1329,63 +1356,68 @@ func Tokenize(src, filename string) []Token {
 					oper_size, oper_key, got_match = keylen, key, true
 				}
 			}
-			
 			if got_match {
 				s.idx += len(oper_key)
+				span := MakeSpan(start_line, start_col, s.line, s.Col())
 				lexeme, kind := string(s.runes[starting : s.idx]), Opers[oper_key]
-				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Line: starting_line, Col: col, Kind: kind})
+				tokens = append(tokens, Token{Lexeme: lexeme, Path: &filename, Span: span, Kind: kind})
 				continue
 			} else {
-				writeMsg(&s.numMsgs, os.Stdout, filename, "lex error", COLOR_RED, &s.line, &col, "unknown operator: '%c'.", s.runes[starting])
+				err_span := MakeSpan(start_line, start_col, s.line, s.Col())
+				s.MsgSpan.PrepNote(err_span, "illegal operator")
+				SpewReport(os.Stdout, s.MsgSpan.Report("lex error", "", COLOR_RED, "unknown operator: '%s'", filename, &s.line, &start_col, s.runes[starting]), &s.numMsgs)
+				s.MsgSpan.PurgeNotes()
 				goto errored_return
 			}
 		}
 	}
 errored_return:
-	tokens = append(tokens, Token{Lexeme: "<eof>", Path: &filename, Line: s.line, Col: s.Col(), Kind: TKEoF})
-	return tokens
+	span := MakeSpan(s.line, s.Col(), s.line, s.Col()+1)
+	tokens = append(tokens, Token{Lexeme: "", Path: &filename, Span: span, Kind: TKEoF})
+	tr := MakeTokenReader(tokens, s.MsgSpan.code)
+	return &tr
 }
 
 
-func ConcatStringLiterals(tokens []Token) []Token {
-	num_tokens := len(tokens)
+func ConcatStringLiterals(tr *TokenReader) *TokenReader {
+	num_tokens := len(tr.Tokens)
 	for i := 0; i < num_tokens; i++ {
-		if tokens[i].Kind==TKStrLit && i + 2 < num_tokens && tokens[i+1].Kind==TKEllipses && tokens[i+2].Kind==TKStrLit {
+		if tr.Tokens[i].Kind==TKStrLit && i + 2 < num_tokens && tr.Tokens[i+1].Kind==TKEllipses && tr.Tokens[i+2].Kind==TKStrLit {
 			// merge the two strings together, then remove the ... and 2nd string from the token list.
 			saved := i - 1
-			tokens[i].Lexeme += tokens[i+2].Lexeme
-			tokens = append(tokens[:i+1], tokens[i+3:]...)
-			num_tokens = len(tokens)
+			tr.Tokens[i].Lexeme += tr.Tokens[i+2].Lexeme
+			tr.Tokens = append(tr.Tokens[:i+1], tr.Tokens[i+3:]...)
+			num_tokens = len(tr.Tokens)
 			i = saved
 		}
 	}
-	return tokens
+	return tr
 }
 
-func StripSpaceTokens(tokens []Token, allow_newlines bool) []Token {
-	i, num_tokens := 0, len(tokens)
+func StripSpaceTokens(tr *TokenReader, allow_newlines bool) *TokenReader {
+	i, num_tokens := 0, len(tr.Tokens)
 	for i < num_tokens {
-		if t := tokens[i]; t.Kind==TKSpace || t.Kind==TKTab || (!allow_newlines && t.Kind==TKNewline) {
-			tokens = append(tokens[:i], tokens[i+1:]...)
-			num_tokens = len(tokens)
+		if t := tr.Tokens[i]; t.Kind==TKSpace || t.Kind==TKTab || (!allow_newlines && t.Kind==TKNewline) {
+			tr.Tokens = append(tr.Tokens[:i], tr.Tokens[i+1:]...)
+			num_tokens = len(tr.Tokens)
 			i = 0
 			continue
 		}
 		i++
 	}
-	return tokens
+	return tr
 }
 
-func RemoveComments(tokens []Token) []Token {
-	i, num_tokens := 0, len(tokens)
+func RemoveComments(tr *TokenReader) *TokenReader {
+	i, num_tokens := 0, len(tr.Tokens)
 	for i < num_tokens {
-		if tokens[i].Kind==TKComment {
-			tokens = append(tokens[:i], tokens[i+1:]...)
-			num_tokens = len(tokens)
+		if tr.Tokens[i].Kind==TKComment {
+			tr.Tokens = append(tr.Tokens[:i], tr.Tokens[i+1:]...)
+			num_tokens = len(tr.Tokens)
 			i = 0
 			continue
 		}
 		i++
 	}
-	return tokens
+	return tr
 }

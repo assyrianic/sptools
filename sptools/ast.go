@@ -10,27 +10,23 @@ import (
 
 
 type (
-	Pos struct {
-		Line, Col uint32
-		Path     *string
-		Tok      *Token
-	}
 	Node interface {
 		// line & col.
-		Pos() Pos
+		Tok() Token
+		Span() Span
 		aNode()
 	}
 )
 
 type node struct {
-	pos Pos
+	tok Token
 }
-func (n *node) Pos() Pos { return n.pos }
+func (n *node) Tok() Token { return n.tok }
+func (n *node) Span() Span { return n.tok.Span }
 func (*node) aNode() {}
 
 func copyPosToNode(n *node, t Token) {
-	n.pos.Line, n.pos.Col = t.Line, t.Col
-	n.pos.Path, n.pos.Tok = t.Path, &t
+	n.tok = t
 }
 
 
@@ -480,7 +476,7 @@ type (
 	
 	// <T>
 	TypedExpr struct {
-		Tok Token
+		TypeName Token
 		expr
 	}
 	
@@ -584,13 +580,13 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 	case nil:
 		fmt.Fprintf(w, "nil Node\n")
 	case *BadStmt:
-		fmt.Fprintf(w, "Bad/Errored Stmt Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
+		fmt.Fprintf(w, "Bad/Errored Stmt Node:: %q\n", ast.node.tok.ToString())
 	case *BadExpr:
-		fmt.Fprintf(w, "Bad/Errored Expr Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
+		fmt.Fprintf(w, "Bad/Errored Expr Node:: %q\n", ast.node.tok.ToString())
 	case *BadSpec:
-		fmt.Fprintf(w, "Bad/Errored Spec Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
+		fmt.Fprintf(w, "Bad/Errored Spec Node:: %q\n", ast.node.tok.ToString())
 	case *BadDecl:
-		fmt.Fprintf(w, "Bad/Errored Decl Node:: Line: %v | Col: %v | Path: %q | Tok: %q\n", ast.node.pos.Line, ast.node.pos.Col, *ast.node.pos.Path, ast.node.pos.Tok)
+		fmt.Fprintf(w, "Bad/Errored Decl Node:: %q\n", ast.node.tok.ToString())
 	case *NullExpr:
 		fmt.Fprintf(w, "'null' expr\n")
 	case *BasicLit:
@@ -649,7 +645,7 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 		fmt.Fprintf(w, "Named Arg Expr\n")
 		PrintNode(ast.X, tabs + 1, w)
 	case *TypedExpr:
-		fmt.Fprintf(w, "Typed Expr - Kind: %q\n", ast.Tok.String())
+		fmt.Fprintf(w, "Typed Expr - Kind: %q\n", ast.TypeName.String())
 	case *CommaExpr:
 		fmt.Fprintf(w, "Comma Expr\n")
 		for i := range ast.Exprs {
@@ -1241,7 +1237,7 @@ func exprToString(e Expr, sb *strings.Builder) {
 		sb.WriteRune('.')
 		exprToString(ast.X, sb)
 	case *TypedExpr:
-		sb.WriteString(ast.Tok.Lexeme)
+		sb.WriteString(ast.TypeName.Lexeme)
 	case *CommaExpr:
 		for i := range ast.Exprs {
 			exprToString(ast.Exprs[i], sb)

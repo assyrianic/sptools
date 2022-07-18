@@ -11,8 +11,8 @@ func main() {
 	lexing_flags := SPTools.LEXFLAG_PREPROCESS | SPTools.LEXFLAG_STRIP_COMMENTS
 	if plugin_tokens, res := SPTools.LexFile(os.Args[1], lexing_flags, nil); res {
 		tok_output, _ := os.Create("sptools_token_output.txt")
-		fmt.Fprintf(tok_output, "number of tokens: %d\n", len(plugin_tokens))
-		for _, tk := range plugin_tokens {
+		fmt.Fprintf(tok_output, "number of tokens: %d\n", len(plugin_tokens.Tokens))
+		for _, tk := range plugin_tokens.Tokens {
 			fmt.Fprintf(tok_output, "%s\n", tk.ToString())
 		}
 		if plugin_node := SPTools.ParseTokens(plugin_tokens, false); plugin_node != nil {

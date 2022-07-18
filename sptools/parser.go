@@ -7,9 +7,11 @@ import (
 )
 
 
+const ERR_LIMIT = 5
+
 type Parser struct {
-	TokenReader
-	Errs   []string
+	*TokenReader
+	Errs []string
 }
 
 func (parser *Parser) GetToken(offset int) Token {
@@ -37,13 +39,21 @@ func (parser *Parser) got(tk TokenKind) bool {
 
 func (parser *Parser) syntaxErr(msg string, args ...any) {
 	token := parser.GetToken(-1)
-	str := makeMsg(*token.Path, "syntax error", COLOR_RED, &token.Line, &token.Col, msg, args...)
-	parser.Errs = append(parser.Errs, str)
+	report := parser.MsgSpan.Report("syntax error", "", COLOR_RED, msg, *token.Path, &token.Span.LineStart, &token.Span.ColStart, args...)
+	parser.MsgSpan.PurgeNotes()
+	if len(parser.Errs) <= ERR_LIMIT {
+		parser.Errs = append(parser.Errs, report)
+		if len(parser.Errs) > ERR_LIMIT {
+			parser.Errs = append(parser.Errs, parser.MsgSpan.Report("system", "", COLOR_RED, "too many errors.", *token.Path, nil, nil))
+		}
+	}
 }
 
 // TODO: allow newlines in place of semicolons.
 func (parser *Parser) want(tk TokenKind, lexeme string) bool {
 	if !parser.got(tk) {
+		t := parser.GetToken(0)
+		parser.MsgSpan.PrepNote(t.Span, "")
 		parser.syntaxErr("expecting '%s' but got '%s'", lexeme, parser.GetToken(0).Lexeme)
 		// continue on and try to parse the remainder
 		parser.Advance(1)
@@ -55,7 +65,9 @@ func (parser *Parser) want(tk TokenKind, lexeme string) bool {
 
 func (parser *Parser) Start() Node {
 	if parser.TokenReader.Len() <= 0 {
-		writeMsg(nil, os.Stdout, "parsing error", "sptools", COLOR_RED, nil, nil, "Token buffer is EMPTY!")
+		report := parser.MsgSpan.Report("parsing error", "", COLOR_RED, "Token buffer is EMPTY!", "", nil, nil)
+		SpewReport(os.Stdout, report, nil)
+		parser.MsgSpan.PurgeNotes()
 		return nil
 	}
 	return parser.TopDecl()
@@ -101,7 +113,8 @@ func (parser *Parser) TopDecl() Node {
 			}
 			parser.want(TKRParen, ")")
 			if !parser.got(TKSemi) {
-				return parser.noSemi()
+				parser.noSemi()
+				goto err_exit
 			}
 			plugin.Decls = append(plugin.Decls, stasrt)
 		} else {
@@ -122,6 +135,7 @@ func (parser *Parser) TopDecl() Node {
 			case TKUsing:
 				type_decl.Type = parser.DoUsingSpec()
 			default:
+				parser.MsgSpan.PrepNote(t.Span, "")
 				parser.syntaxErr("bad declaration: %q", t.String())
 				bad := new(BadDecl)
 				copyPosToNode(&bad.node, t)
@@ -133,7 +147,9 @@ func (parser *Parser) TopDecl() Node {
 	}
 err_exit:
 	if len(parser.Errs)==0 {
-		writeMsg(nil, os.Stdout, "", "sptools", COLOR_GREEN, nil, nil, "Parsing completed without errors.")
+		t := parser.GetToken(0)
+		report := parser.MsgSpan.Report("success", "", COLOR_GREEN, "successfully parsed.", *t.Path, nil, nil)
+		SpewReport(os.Stdout, report, nil)
 	} else {
 		for _, err := range parser.Errs {
 			fmt.Fprintf(os.Stdout, "%s\n", err)
@@ -229,6 +245,8 @@ func (parser *Parser) DoParamList() []Decl {
 		
 		var_decl := parser.DoVarOrFuncDecl(true)
 		if _, is_var_decl := var_decl.(*VarDecl); !is_var_decl {
+			loc := var_decl.Span()
+			parser.MsgSpan.PrepNote(loc, "this declaration here.")
 			parser.syntaxErr("bad declaration: expected var declaration.")
 			bad_decl := new(BadDecl)
 			copyPosToNode(&bad_decl.node, t)
@@ -258,7 +276,10 @@ func (parser *Parser) DoFuncDeclarator(fdecl *FuncDecl) {
 			parser.Advance(1)
 		}
 	default:
-		parser.syntaxErr("bad declaration: expected body or semicolon for function.")
+		name := fdecl.Ident.Tok()
+		parser.MsgSpan.PrepNote(name.Span, "this function here.")
+		parser.MsgSpan.PrepNote(t.Span, "needs placement here.")
+		parser.syntaxErr("bad declaration: expected body, assignment, or semicolon for function.")
 		fdecl.Body = new(BadStmt)
 		copyPosToNode(&fdecl.node, t)
 	}
@@ -340,6 +361,8 @@ func (parser *Parser) DoEnumSpec() Spec {
 		parser.Advance(1)
 		t = parser.GetToken(0)
 		if !t.IsOperator() {
+			parser.MsgSpan.PrepNote(enum.Span(), "this enum here.")
+			parser.MsgSpan.PrepNote(t.Span, "placement here.")
 			parser.syntaxErr("expected math operator for enum auto-incrementer.")
 			bad := new(BadSpec)
 			copyPosToNode(&bad.node, parser.GetToken(0))
@@ -402,6 +425,10 @@ func (parser *Parser) DoStruct(is_enum bool) Spec {
 		case *FuncDecl:
 			struc.Methods = append(struc.Methods, ast)
 		default:
+			name := struc.Ident.Tok()
+			parser.MsgSpan.PrepNote(name.Span, "this struct here.")
+			a := v_or_f_decl.Tok()
+			parser.MsgSpan.PrepNote(a.Span, "illegal construct here.")
 			if is_enum {
 				parser.syntaxErr("bad field/method in enum struct")
 			} else {
@@ -427,6 +454,8 @@ func (parser *Parser) DoUsingSpec() Spec {
 	parser.want(TKUsing, "using")
 	using.Namespace = parser.SubMainExpr()
 	if !parser.got(TKSemi) {
+		end := parser.GetToken(-1)
+		parser.MsgSpan.PrepNote(end.Span, "missing ';' here.")
 		parser.syntaxErr("missing ending ';' semicolon for 'using' specification.")
 		bad := new(BadSpec)
 		copyPosToNode(&bad.node, parser.GetToken(-1))
@@ -467,9 +496,13 @@ func (parser *Parser) DoTypedef() Spec {
 	parser.want(TKAssign, "=")
 	typedef.Sig = parser.DoFuncSignature()
 	if !parser.got(TKSemi) {
+		name := typedef.Ident.Tok()
+		parser.MsgSpan.PrepNote(name.Span, "for this typedef here.")
+		end := parser.GetToken(-1)
+		parser.MsgSpan.PrepNote(end.Span, "missing ';' here.")
 		parser.syntaxErr("missing ending ';' semicolon for 'typedef' specification.")
 		bad := new(BadSpec)
-		copyPosToNode(&bad.node, parser.GetToken(-1))
+		copyPosToNode(&bad.node, end)
 		return bad
 	}
 	return typedef
@@ -558,7 +591,7 @@ methodmap_loop_exit:
 
 func (parser *Parser) DoMethodMapProperty(prop *MethodMapPropSpec) *BadSpec {
 	storage_cls := parser.StorageClass()
-	if parser.GetToken(0).Lexeme=="get" {
+	if g := parser.GetToken(0); g.Lexeme=="get" {
 		prop.GetterClass = storage_cls
 		parser.Advance(1)
 		parser.want(TKLParen, "(")
@@ -568,12 +601,16 @@ func (parser *Parser) DoMethodMapProperty(prop *MethodMapPropSpec) *BadSpec {
 		} else if end.Kind==TKSemi {
 			parser.Advance(1)
 		} else {
+			name := prop.Ident.Tok()
+			parser.MsgSpan.PrepNote(name.Span, "in property here.")
+			parser.MsgSpan.PrepNote(g.Span, "offending 'get' starts here.")
+			parser.MsgSpan.PrepNote(end.Span, "end of 'get' property here.")
 			parser.syntaxErr("expected ending } or ; for get implementation on methodmap property.")
 			bad := new(BadSpec)
 			copyPosToNode(&bad.node, parser.GetToken(-1))
 			return bad
 		}
-	} else if parser.GetToken(0).Lexeme=="set" {
+	} else if s := parser.GetToken(0); s.Lexeme=="set" {
 		prop.SetterClass = storage_cls
 		parser.Advance(1)
 		prop.SetterParams = parser.DoParamList()
@@ -582,6 +619,10 @@ func (parser *Parser) DoMethodMapProperty(prop *MethodMapPropSpec) *BadSpec {
 		} else if end.Kind==TKSemi {
 			parser.Advance(1)
 		} else {
+			name := prop.Ident.Tok()
+			parser.MsgSpan.PrepNote(name.Span, "in property here.")
+			parser.MsgSpan.PrepNote(s.Span, "offending 'set' starts here.")
+			parser.MsgSpan.PrepNote(end.Span, "end of 'set' property here.")
 			parser.syntaxErr("expected ending } or ; for set implementation on methodmap property.")
 			bad := new(BadSpec)
 			copyPosToNode(&bad.node, parser.GetToken(-1))
@@ -593,9 +634,11 @@ func (parser *Parser) DoMethodMapProperty(prop *MethodMapPropSpec) *BadSpec {
 
 
 func (parser *Parser) noSemi() Stmt {
-	parser.syntaxErr("missing ';' semicolon, got %q.", parser.GetToken(-1).String())
+	t := parser.GetToken(-1)
+	parser.MsgSpan.PrepNote(t.Span, "missing semicolon here")
+	parser.syntaxErr("missing ';' semicolon, got %q.", t.String())
 	bad := new(BadStmt)
-	copyPosToNode(&bad.node, parser.GetToken(-1))
+	copyPosToNode(&bad.node, t)
 	return bad
 }
 
@@ -755,6 +798,7 @@ func (parser *Parser) Statement() Stmt {
 		parser.Advance(1)
 		fallthrough
 	default:
+		parser.MsgSpan.PrepNote(t.Span, "statement starts here.")
 		parser.syntaxErr("unknown statement: %q", t.String())
 		bad := new(BadStmt)
 		copyPosToNode(&bad.node, parser.GetToken(0))
@@ -812,6 +856,7 @@ func (parser *Parser) DoIf() Stmt {
 		case TKLCurl:
 			ifstmt.Else = parser.DoBlock()
 		default:
+			parser.MsgSpan.PrepNote(Span, "reason here.")
 			parser.syntaxErr("ill-formed else block, missing 'if' or { curl.")
 			bad := new(BadStmt)
 			copyPosToNode(&bad.node, t)
@@ -870,6 +915,8 @@ func (parser *Parser) Switch() Stmt {
 			parser.Advance(1)
 			case_expr := parser.MainExpr()
 			if _, is_bad := case_expr.(*BadExpr); is_bad {
+				n := case_expr.Tok()
+				parser.MsgSpan.PrepNote(n.Span, "offending case expression(s).")
 				parser.syntaxErr("bad case expr.")
 				bad_case = true
 				goto errd_case
@@ -884,7 +931,8 @@ func (parser *Parser) Switch() Stmt {
 			parser.want(TKColon, ":")
 			swtch.Default = parser.Statement()
 		default:
-			parser.syntaxErr("bad switch label: %+v.", parser.GetToken(0))
+			parser.MsgSpan.PrepNote(t.Span, "illegal switch case.")
+			parser.syntaxErr("bad switch control label: %v.", t)
 			bad := new(BadStmt)
 			copyPosToNode(&bad.node, parser.GetToken(0))
 			return bad
@@ -1213,10 +1261,11 @@ func (parser *Parser) TypeExpr(need_carots bool) Expr {
 	if t := parser.GetToken(0); t.IsType() || t.Kind==TKIdent {
 		texp := new(TypedExpr)
 		copyPosToNode(&texp.node, t)
-		texp.Tok = t
+		texp.TypeName = t
 		ret_expr = texp
 		parser.Advance(1)
 	} else {
+		parser.MsgSpan.PrepNote(t.Span, "expected type here.")
 		parser.syntaxErr("missing type expression.")
 		bad := new(BadExpr)
 		copyPosToNode(&bad.node, t)
@@ -1259,6 +1308,7 @@ func (parser *Parser) ExprList(end, sep TokenKind, sep_at_end bool) []Expr {
 			named_arg := new(NamedArg)
 			copyPosToNode(&named_arg.node, parser.GetToken(-1))
 			if iden := parser.GetToken(0); iden.Kind != TKIdent {
+				parser.MsgSpan.PrepNote(t.Span, "")
 				parser.syntaxErr("expected identifier for named arg.")
 			}
 			named_arg.X = parser.AssignExpr()
@@ -1353,6 +1403,7 @@ func (parser *Parser) PrimaryExpr() Expr {
 		parser.Advance(1)
 		ret_expr = parser.MainExpr()
 		if t := parser.GetToken(0); t.Kind != TKRParen {
+			parser.MsgSpan.PrepNote(prim.Span, "starting '(' parenthesis here.")
 			parser.syntaxErr("missing ending ')' right paren for nested expression")
 			bad := new(BadExpr)
 			copyPosToNode(&bad.node, parser.GetToken(0))
@@ -1422,6 +1473,7 @@ func (parser *Parser) PrimaryExpr() Expr {
 		func_lit.Body = parser.DoBlock()
 		return func_lit
 	default:
+		parser.MsgSpan.PrepNote(prim.Span, "offending token.")
 		parser.syntaxErr("bad primary expression '%s'", prim.Lexeme)
 		bad := new(BadExpr)
 		copyPosToNode(&bad.node, prim)

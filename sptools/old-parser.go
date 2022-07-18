@@ -1,15 +1,8 @@
 package SPTools
 
-import (
-	"os"
-	///"fmt"
-	///"time"
-)
-
 
 func (parser *Parser) OldStart() Node {
 	if parser.TokenReader.Len() <= 0 {
-		writeMsg(nil, os.Stdout, "parsing error", "sptools", COLOR_RED, nil, nil, "Token buffer is EMPTY!")
 		return nil
 	}
 	return parser.DoOldBlock()
@@ -572,8 +565,8 @@ func (parser *Parser) OldTypeExpr() Expr {
 	if t := parser.GetToken(0); t.IsType() || t.Kind==TKIdent {
 		texp := new(TypedExpr)
 		copyPosToNode(&texp.node, t)
-		texp.Tok = t
-		texp.Tok.Lexeme = func() string {
+		texp.TypeName = t
+		texp.TypeName.Lexeme = func() string {
 			switch t.Lexeme {
 			case "String":
 				return "char"
