@@ -183,15 +183,18 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 					output = append(output, stringified)
 				}
 			} else {
-				output = append(output, x)
+				///output = append(output, x)
+				macro_span := name.Span.AdjustLines(x.Span)
+				output = append(output, Token{Lexeme: x.Lexeme, Path: x.Path, Span: macro_span, Kind: x.Kind })
 			}
 		}
 	} else {
 		// object-like Macro.
 		for _, x := range m.Body {
+			macro_span := name.Span.AdjustLines(x.Span)
 			if x.Kind==TKIdent && x.Lexeme=="__LINE__" {
 				line_str := fmt.Sprintf("%d", name.Span.LineStart)
-				output = append(output, Token{Lexeme: line_str, Path: x.Path, Span: x.Span, Kind: TKIntLit})
+				output = append(output, Token{Lexeme: line_str, Path: x.Path, Span: macro_span, Kind: TKIntLit})
 			} else {
 				output = append(output, Token{Lexeme: x.Lexeme, Path: x.Path, Span: x.Span, Kind: x.Kind } )
 			}

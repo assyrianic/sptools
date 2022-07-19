@@ -606,6 +606,23 @@ func MakeSpan(line_start, col_start, line_end, col_end uint16) Span {
 	}
 }
 
+func (a Span) AdjustLines(b Span) Span {
+	var new_line_start, new_line_end uint16
+	if a.LineStart > b.LineStart {
+		new_line_start = b.LineStart + (a.LineStart - b.LineStart)
+	} else {
+		new_line_start = a.LineStart + (b.LineStart - a.LineStart)
+	}
+	
+	if a.LineEnd > b.LineEnd {
+		new_line_end = b.LineEnd + (a.LineEnd - b.LineEnd)
+	} else {
+		new_line_end = a.LineEnd + (b.LineEnd - a.LineEnd)
+	}
+	return MakeSpan(new_line_start, a.ColStart, new_line_end, a.ColEnd)
+}
+
+
 
 type Token struct {
 	Span

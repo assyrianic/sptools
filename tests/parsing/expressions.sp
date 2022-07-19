@@ -30,7 +30,9 @@ void InitNatives()
 	#define CREATE_NATIVE(%0)    CreateNative("FF2GameMode."...#%0   , Native_FF2GameMode_%0)
 
 
-	CREATE_NATIVE(IsOn)
+	CREATE_NATIVE(IsOn);
+}
+/*
 	CREATE_NATIVE(PluginVersion);
 	CREATE_NATIVE(ForkVersion);
 
@@ -75,7 +77,6 @@ void InitNatives()
 	#undef CREATE_NATIVE
 	#undef CREATE_NATIVE_GET
 }
-/*
 */
 
 
