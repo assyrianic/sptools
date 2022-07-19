@@ -23,6 +23,12 @@ Code as you wish but use two slashes `//` or single star C++-style `/**/` for co
 Commented out code should use three slashes `///` or double star C++-style.
 
 
+### Known Bugs/Glitches
+
+* Due to the Rust-style messaging system, syntax issues from macros can give inaccurate and/or confusing error messages.
+
+
+
 ## Help
 
 If you need help or have any question, make an issue on the github repository.
