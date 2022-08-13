@@ -361,7 +361,7 @@ func (parser *Parser) DoEnumSpec() Spec {
 		parser.Advance(1)
 		t = parser.GetToken(0)
 		if !t.IsOperator() {
-			parser.MsgSpan.PrepNote(enum.Span(), "this enum here.")
+			parser.MsgSpan.PrepNote(enum.Span(), "this enum here.\n")
 			parser.MsgSpan.PrepNote(t.Span, "placement here.")
 			parser.syntaxErr("expected math operator for enum auto-incrementer.")
 			bad := new(BadSpec)
@@ -426,7 +426,7 @@ func (parser *Parser) DoStruct(is_enum bool) Spec {
 			struc.Methods = append(struc.Methods, ast)
 		default:
 			name := struc.Ident.Tok()
-			parser.MsgSpan.PrepNote(name.Span, "this struct here.")
+			parser.MsgSpan.PrepNote(name.Span, "this struct here.\n")
 			a := v_or_f_decl.Tok()
 			parser.MsgSpan.PrepNote(a.Span, "illegal construct here.")
 			if is_enum {
@@ -497,7 +497,7 @@ func (parser *Parser) DoTypedef() Spec {
 	typedef.Sig = parser.DoFuncSignature()
 	if !parser.got(TKSemi) {
 		name := typedef.Ident.Tok()
-		parser.MsgSpan.PrepNote(name.Span, "for this typedef here.")
+		parser.MsgSpan.PrepNote(name.Span, "for this typedef here.\n")
 		end := parser.GetToken(-1)
 		parser.MsgSpan.PrepNote(end.Span, "missing ';' here.")
 		parser.syntaxErr("missing ending ';' semicolon for 'typedef' specification.")
@@ -602,8 +602,8 @@ func (parser *Parser) DoMethodMapProperty(prop *MethodMapPropSpec) *BadSpec {
 			parser.Advance(1)
 		} else {
 			name := prop.Ident.Tok()
-			parser.MsgSpan.PrepNote(name.Span, "in property here.")
-			parser.MsgSpan.PrepNote(g.Span, "offending 'get' starts here.")
+			parser.MsgSpan.PrepNote(name.Span, "in property here.\n")
+			parser.MsgSpan.PrepNote(g.Span, "offending 'get' starts here.\n")
 			parser.MsgSpan.PrepNote(end.Span, "end of 'get' property here.")
 			parser.syntaxErr("expected ending } or ; for get implementation on methodmap property.")
 			bad := new(BadSpec)
@@ -620,8 +620,8 @@ func (parser *Parser) DoMethodMapProperty(prop *MethodMapPropSpec) *BadSpec {
 			parser.Advance(1)
 		} else {
 			name := prop.Ident.Tok()
-			parser.MsgSpan.PrepNote(name.Span, "in property here.")
-			parser.MsgSpan.PrepNote(s.Span, "offending 'set' starts here.")
+			parser.MsgSpan.PrepNote(name.Span, "in property here.\n")
+			parser.MsgSpan.PrepNote(s.Span, "offending 'set' starts here.\n")
 			parser.MsgSpan.PrepNote(end.Span, "end of 'set' property here.")
 			parser.syntaxErr("expected ending } or ; for set implementation on methodmap property.")
 			bad := new(BadSpec)
@@ -1228,12 +1228,12 @@ func (parser *Parser) MulExpr() Expr {
 	return e
 }
 
-// PrefixExpr = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new' ) PostfixExpr .
+// PrefixExpr = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'new' ) PostfixExpr .
 func (parser *Parser) PrefixExpr() Expr {
 	///defer fmt.Printf("parser.PrefixExpr()\n")
 	// certain patterns are allowed to recursively run Prefix.
 	switch t := parser.GetToken(0); t.Kind {
-	case TKIncr, TKDecr, TKNot, TKCompl, TKSub, TKSizeof, TKDefined, TKNew:
+	case TKIncr, TKDecr, TKNot, TKCompl, TKSub, TKSizeof, TKNew:
 		n := new(UnaryExpr)
 		parser.Advance(1)
 		copyPosToNode(&n.node, t)

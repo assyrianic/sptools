@@ -9,14 +9,12 @@ import (
 )
 
 
-type (
-	Node interface {
-		// line & col.
-		Tok() Token
-		Span() Span
-		aNode()
-	}
-)
+type Node interface {
+	// line & col.
+	Tok() Token
+	Span() Span
+	aNode()
+}
 
 type node struct {
 	tok Token
@@ -175,7 +173,7 @@ func IsDeclNode(n Node) bool {
 
 
 // Specifications here.
-// Spec represents a constant, type, or variable declaration.
+// Spec represents a constant or type definition.
 type (
 	Spec interface {
 		Node
@@ -413,10 +411,10 @@ func IsStmtNode(n Node) bool {
 type LitKind uint8
 const (
 	IntLit LitKind = iota
+	BoolLit
 	FloatLit
 	CharLit
 	StringLit
-	BoolLit
 )
 var LitKindToStr = [...]string{
 	IntLit: "int literal",

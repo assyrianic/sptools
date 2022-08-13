@@ -119,8 +119,8 @@ func (m Macro) Apply(tr *TokenReader) ([]Token, bool) {
 			tr.Advance(1)
 		}
 		if len(m.Params) != len(args) {
-			e := tr.Get(1, 0)
-			tr.MsgSpan.PrepNote(m.Iden.Span, "for this macro.")
+			e := tr.Get(-1, 0)
+			tr.MsgSpan.PrepNote(m.Iden.Span, "for this macro.\n")
 			tr.MsgSpan.PrepNote(e.Span, "arg here.")
 			report := tr.MsgSpan.Report("syntax error", "", COLOR_RED, "function macro %q args given (%d) do not match parameters (%d).", *e.Path, &e.Span.LineStart, &e.Span.ColStart, name.Lexeme, len(args), len(m.Params))
 			SpewReport(os.Stdout, report, nil)

@@ -90,7 +90,7 @@ ShiftExpr = AddExpr *( ( '<<' | '>>' | '>>>' ) AddExpr ) .
 AddExpr = MulExpr *( ( '+' | '-' ) MulExpr ) .
 MulExpr = PrefixExpr *( ( '*' | '/' | '%' ) PrefixExpr ) .
 
-PrefixExpr = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'defined' | 'new' ) PostfixExpr .
+PrefixExpr = *( '!' | '~' | '-' | '++' | '--' | 'sizeof' | 'new' ) PostfixExpr .
 
 TypeExpr = ( ident | '[u]int[8|16|32|64|n]' | 'float' | 'char' | 'bool' ) .
 ViewAsExpr = 'view_as' '<' TypeExpr '>' '(' MainExpr ')' .

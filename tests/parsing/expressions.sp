@@ -15,7 +15,17 @@ static_assert('''
 kektus''');
 
 methodmap A {
-	public native void B();
+	public void A() {...}
+	property B b {
+		public get() { return view_as< B >(0); } 
+	}
+}
+
+methodmap B {
+	public void B() {...}
+	property A a {
+		public get() { return view_as< A >(0); } 
+	}
 }
 
 int a = access ? INT_SQR (10) > 0 ? "❎" : "☑" : "🔒";
