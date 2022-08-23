@@ -215,6 +215,16 @@ func intToBool(i int) bool {
 	return i != 0
 }
 
+func boolToFloat(b bool) float32 {
+	if b {
+		return 1.0
+	}
+	return 0.0
+}
+func floatToBool(i float32) bool {
+	return i != 0.0
+}
+
 // expr = OrExpr .
 func evalCond(tr *TokenReader, macros map[string]Macro) (int, bool) {
 	return evalOr(tr, macros)

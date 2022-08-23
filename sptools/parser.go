@@ -1084,14 +1084,16 @@ func (parser *Parser) RelExpr() Expr {
 	}
 	
 	e := parser.BitOrExpr()
-	for t := parser.GetToken(0); t.Kind>=TKLess && t.Kind<=TKLessE; t = parser.GetToken(0) {
-		b := new(BinExpr)
-		copyPosToNode(&b.node, t)
-		b.L = e
-		b.Kind = t.Kind
-		parser.Advance(1)
-		b.R = parser.BitOrExpr()
-		e = b
+	if t := parser.GetToken(0); t.Kind>=TKLess && t.Kind<=TKLessE {
+		chain := new(ChainExpr)
+		copyPosToNode(&chain.node, t)
+		chain.A = e
+		for n := t; n.Kind>=TKLess && n.Kind<=TKLessE; n = parser.GetToken(0) {
+			chain.Kinds = append(chain.Kinds, n.Kind)
+			parser.Advance(1)
+			chain.Bs = append(chain.Bs, parser.BitOrExpr())
+		}
+		e = chain
 	}
 	return e
 }
@@ -1258,6 +1260,7 @@ func (parser *Parser) TypeExpr(need_carots bool) Expr {
 	if need_carots {
 		parser.want(TKLess, "<")
 	}
+	
 	if t := parser.GetToken(0); t.IsType() || t.Kind==TKIdent {
 		texp := new(TypedExpr)
 		copyPosToNode(&texp.node, t)
@@ -1266,7 +1269,7 @@ func (parser *Parser) TypeExpr(need_carots bool) Expr {
 		parser.Advance(1)
 	} else {
 		parser.MsgSpan.PrepNote(t.Span, "expected type here.")
-		parser.syntaxErr("missing type expression.")
+		parser.syntaxErr("missing required type expression.")
 		bad := new(BadExpr)
 		copyPosToNode(&bad.node, t)
 		ret_expr = bad

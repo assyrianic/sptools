@@ -9,7 +9,7 @@ import (
 
 func main() {
 	lexing_flags := SPTools.LEXFLAG_PREPROCESS | SPTools.LEXFLAG_STRIP_COMMENTS
-	///*
+	/*
 	if plugin_tokens, res := SPTools.LexFile(os.Args[1], lexing_flags, nil); res {
 		tok_output, _ := os.Create("sptools_token_output.txt")
 		fmt.Fprintf(tok_output, "number of tokens: %d\n", len(plugin_tokens.Tokens))
@@ -27,10 +27,16 @@ func main() {
 	} else {
 		fmt.Printf("failed to process tokens\n")
 	}
-	//*/
-	/*
-	if pl := SPTools.ParseExpression(os.Args[1], lexing_flags, nil, false); pl != nil {
-		fmt.Printf("'%s'\n", SPTools.AstToString(pl))
-	}
 	*/
+	///*
+	tr, _ := SPTools.LexCodeString(os.Args[1], lexing_flags, nil)
+	parser := SPTools.MakeParser(tr)
+	e := parser.Statement()
+	fmt.Printf("'%s'\n", SPTools.AstToString(e))
+	SPTools.PrintNode(e, 0, os.Stdin)
+	interp := SPTools.MakeInterpreter(parser)
+	flow := SPTools.ControlFlow(0)
+	type_res := interp.EvalStmt(e, &flow)
+	fmt.Printf("SPTools Expr Evaluation: '%T' - '%v'\n", type_res, type_res)
+	//*/
 }

@@ -465,6 +465,14 @@ type (
 		expr
 	}
 	
+	// a # b [ # c ... z ]
+	ChainExpr struct {
+		A Expr
+		Bs []Expr
+		Kinds []TokenKind
+		expr
+	}
+	
 	// a # b
 	BinExpr struct {
 		L, R Expr
@@ -552,7 +560,7 @@ func (*expr) aExpr() {}
 
 func IsExprNode(n Node) bool {
 	switch n.(type) {
-	case *BracketExpr, *EllipsesExpr, *CommaExpr, *TernaryExpr, *BinExpr, *TypedExpr, *ViewAsExpr:
+	case *BracketExpr, *EllipsesExpr, *CommaExpr, *TernaryExpr, *BinExpr, *TypedExpr, *ViewAsExpr, *ChainExpr:
 		return true
 	case *UnaryExpr, *FieldExpr, *NameSpaceExpr, *IndexExpr, *NamedArg, *CallExpr, *ThisExpr, *NullExpr:
 		return true
@@ -634,6 +642,13 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 		fmt.Fprintf(w, "Binary Expr - Kind: %q\n", TokenToStr[ast.Kind])
 		PrintNode(ast.L, tabs + 1, w)
 		PrintNode(ast.R, tabs + 1, w)
+	case *ChainExpr:
+		fmt.Fprintf(w, "Chain Expr\n")
+		PrintNode(ast.A, tabs + 1, w)
+		for i := range ast.Kinds {
+			fmt.Fprintf(w, "Chain Expr Kind: %q\n", TokenToStr[ast.Kinds[i]])
+			PrintNode(ast.Bs[i], tabs + 1, w)
+		}
 	case *TernaryExpr:
 		fmt.Fprintf(w, "Ternary Expr\n")
 		PrintNode(ast.A, tabs + 1, w)
@@ -923,7 +938,6 @@ func PrintNode(n Node, tabs int, w io.Writer) {
 	}
 }
 
-
 func Walk(n, parent Node, visitor func(n, parent Node) bool) {
 	if !visitor(n, parent) {
 		return
@@ -957,6 +971,11 @@ func Walk(n, parent Node, visitor func(n, parent Node) bool) {
 	case *BinExpr:
 		Walk(ast.L, n, visitor)
 		Walk(ast.R, n, visitor)
+	case *ChainExpr:
+		Walk(ast.A, n, visitor)
+		for i := range ast.Bs {
+			Walk(ast.Bs[i], n, visitor)
+		}
 	case *TernaryExpr:
 		Walk(ast.A, n, visitor)
 		Walk(ast.B, n, visitor)
@@ -1223,6 +1242,12 @@ func exprToString(e Expr, sb *strings.Builder) {
 			exprToString(ast.L, sb)
 			sb.WriteString(" " + TokenToStr[ast.Kind] + " ")
 			exprToString(ast.R, sb)
+		}
+	case *ChainExpr:
+		exprToString(ast.A, sb)
+		for i := range ast.Kinds {
+			sb.WriteString(" " + TokenToStr[ast.Kinds[i]] + " ")
+			exprToString(ast.Bs[i], sb)
 		}
 	case *TernaryExpr:
 		sb.WriteRune('(')

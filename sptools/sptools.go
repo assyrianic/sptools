@@ -254,6 +254,17 @@ func ParseStatement(code string, flags int, macros map[string]Macro, old bool) S
 	return nil
 }
 
+func EvalExpression(code string, flags int, macros map[string]Macro, old bool) TypeAndVal {
+	output, good := finishLexing(Tokenize(code, ""), flags, macros)
+	if good {
+		parser := MakeParser(output)
+		expr_node := Ternary[Expr](old, parser.OldMainExpr(), parser.MainExpr())
+		interp := MakeInterpreter(parser)
+		return interp.EvalExpr(expr_node)
+	}
+	return VoidTypeAndVal{}
+}
+
 
 func Ternary[T any](cond bool, a, b T) T {
 	if cond {
