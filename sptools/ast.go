@@ -429,6 +429,7 @@ type (
 	Expr interface {
 		Node
 		aExpr()
+		Tag() Type
 	}
 	
 	BadExpr struct {
@@ -555,8 +556,14 @@ type (
 		expr
 	}
 )
-type expr struct{ node }
+type expr struct{
+	node
+	tag Type
+}
 func (*expr) aExpr() {}
+func (e *expr) Tag() Type {
+	return e.tag
+}
 
 func IsExprNode(n Node) bool {
 	switch n.(type) {
@@ -582,6 +589,11 @@ func printTabs(c rune, tabs int, w io.Writer) {
 func PrintNode(n Node, tabs int, w io.Writer) {
 	const c = '-'
 	printTabs(c, tabs, w)
+	
+	if IsExprNode(n) {
+		fmt.Fprintf(w, "Type of Expr Node: '%s'\n", GetTypeName(n.(Expr).Tag()))
+	}
+	
 	switch ast := n.(type) {
 	case nil:
 		fmt.Fprintf(w, "nil Node\n")

@@ -32,11 +32,10 @@ func main() {
 	tr, _ := SPTools.LexCodeString(os.Args[1], lexing_flags, nil)
 	parser := SPTools.MakeParser(tr)
 	e := parser.Statement()
+	parser.ReportErrs()
 	fmt.Printf("'%s'\n", SPTools.AstToString(e))
+	tc := SPTools.MakeTypeChecker(parser)
+	tc.CheckStmt(e)
 	SPTools.PrintNode(e, 0, os.Stdin)
-	interp := SPTools.MakeInterpreter(parser)
-	flow := SPTools.ControlFlow(0)
-	type_res := interp.EvalStmt(e, &flow)
-	fmt.Printf("SPTools Expr Evaluation: '%T' - '%v'\n", type_res, type_res)
 	//*/
 }

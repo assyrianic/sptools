@@ -27,6 +27,20 @@ func (parser *Parser) HasTokenKindSeq(kinds ...TokenKind) bool {
 	return parser.TokenReader.HasTokenKindSeq(TOKFLAG_IGNORE_ALL, kinds...)
 }
 
+func (parser *Parser) ReportErrs() bool {
+	if len(parser.Errs)==0 {
+		t := parser.GetToken(0)
+		report := parser.MsgSpan.Report("success", "", COLOR_GREEN, "successfully parsed.", *t.Path, nil, nil)
+		SpewReport(os.Stdout, report, nil)
+		return true
+	} else {
+		for _, err := range parser.Errs {
+			fmt.Fprintf(os.Stdout, "%s\n", err)
+		}
+		return false
+	}
+}
+
 // REMEMBER, this auto-increments the token index if it matches.
 // so DO NOT increment the token index after using this.
 func (parser *Parser) got(tk TokenKind) bool {
@@ -146,15 +160,7 @@ func (parser *Parser) TopDecl() Node {
 		}
 	}
 err_exit:
-	if len(parser.Errs)==0 {
-		t := parser.GetToken(0)
-		report := parser.MsgSpan.Report("success", "", COLOR_GREEN, "successfully parsed.", *t.Path, nil, nil)
-		SpewReport(os.Stdout, report, nil)
-	} else {
-		for _, err := range parser.Errs {
-			fmt.Fprintf(os.Stdout, "%s\n", err)
-		}
-	}
+	parser.ReportErrs()
 	return plugin
 }
 

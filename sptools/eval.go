@@ -1,6 +1,5 @@
 package SPTools
 
-
 import (
 	"os"
 	"fmt"
@@ -52,25 +51,6 @@ func NewScope() *Scope {
 */
 
 
-func IsExactType[T any](a any) bool {
-	_, is_type := a.(T)
-	return is_type
-}
-
-func AreSameType[T any](a, b any) bool {
-	_, a_type := a.(T)
-	_, b_type := b.(T)
-	return a_type && b_type
-}
-
-// for binary operations.
-// please make sure they're both the same type by using 'AreSameType'.
-func GetBinaryTypes[T any](a, b TypeAndVal) (T, T) {
-	x := a.(T)
-	y := b.(T)
-	return x, y
-}
-
 
 type (
 	TypeAndVal interface {
@@ -78,6 +58,10 @@ type (
 	}
 	
 	VoidTypeAndVal struct {
+		_type
+	}
+	
+	HandleTypeAndVal struct {
 		_type
 	}
 	
@@ -119,7 +103,7 @@ type _type struct {}
 func (_type) aType() {}
 
 
-func IsArithmeticType(a TypeAndVal) bool {
+func IsArithmeticTypeAndVal(a TypeAndVal) bool {
 	switch a.(type) {
 	case IntTypeAndVal, FloatTypeAndVal, CharTypeAndVal:
 		return true
@@ -128,7 +112,7 @@ func IsArithmeticType(a TypeAndVal) bool {
 	}
 }
 
-func GetTypeName(a TypeAndVal) string {
+func GetTypeAndValName(a TypeAndVal) string {
 	switch t := a.(type) {
 	case VoidTypeAndVal:
 		return "Void Type"
@@ -139,7 +123,7 @@ func GetTypeName(a TypeAndVal) string {
 	case CharTypeAndVal:
 		return "Char Type"
 	case RefTypeAndVal:
-		return "Ref Type of " + GetTypeName(t.Ref)
+		return "Ref Type of " + GetTypeAndValName(t.Ref)
 	case ArrayTypeAndVal:
 		return "Array Type"
 	case FuncTypeAndVal:
@@ -153,7 +137,7 @@ func GetTypeName(a TypeAndVal) string {
  * 1. Two expressions are convertible when their reduced forms are the same. E.g 2 + 2 is convertible to 4
  * 2. Two expressions are coercible when you can safely cast one to the other. E.g 22 : int32 might be coercible to 22 : int64
  */
-func AreTypesCoercible(a, b TypeAndVal) bool {
+func AreTypeAndValCoercible(a, b TypeAndVal) bool {
 	switch tA := a.(type) {
 	case IntTypeAndVal, CharTypeAndVal, FloatTypeAndVal:
 		switch b.(type) {
@@ -170,7 +154,7 @@ func AreTypesCoercible(a, b TypeAndVal) bool {
 				return false
 			}
 			for i := range tA.Elems {
-				if !AreTypesCoercible(tA.Elems[i], tB.Elems[i]) {
+				if !AreTypeAndValCoercible(tA.Elems[i], tB.Elems[i]) {
 					return false
 				}
 			}
@@ -181,7 +165,7 @@ func AreTypesCoercible(a, b TypeAndVal) bool {
 }
 
 func ConvertToInt(a TypeAndVal) (IntTypeAndVal, bool) {
-	if !IsArithmeticType(a) {
+	if !IsArithmeticTypeAndVal(a) {
 		return IntTypeAndVal{}, false
 	}
 	
@@ -198,7 +182,7 @@ func ConvertToInt(a TypeAndVal) (IntTypeAndVal, bool) {
 }
 
 func ConvertToFloat(a TypeAndVal) (FloatTypeAndVal, bool) {
-	if !IsArithmeticType(a) {
+	if !IsArithmeticTypeAndVal(a) {
 		return FloatTypeAndVal{}, false
 	}
 	
@@ -215,7 +199,7 @@ func ConvertToFloat(a TypeAndVal) (FloatTypeAndVal, bool) {
 }
 
 func ConvertToChar(a TypeAndVal) (CharTypeAndVal, bool) {
-	if !IsArithmeticType(a) {
+	if !IsArithmeticTypeAndVal(a) {
 		return CharTypeAndVal{}, false
 	}
 	
@@ -279,7 +263,7 @@ func (interp Interp) EvalExpr(e Expr) TypeAndVal {
 	case *BasicLit:
 		switch ast.Kind {
 		case IntLit:
-			int_val, _ := strconv.ParseInt(ast.Value, 0, 64)
+			int_val, _ := strconv.ParseInt(ast.Value, 0, 32)
 			return IntTypeAndVal{ Value: int32(int_val) }
 		case BoolLit:
 			bool_val, _ := strconv.ParseBool(ast.Value)
@@ -319,7 +303,7 @@ func (interp Interp) EvalExpr(e Expr) TypeAndVal {
 			return IntTypeAndVal{ Value: 0 }
 		case TKIncr, TKDecr:
 			t := interp.EvalExpr(ast.X)
-			if !IsArithmeticType(t) {
+			if !IsArithmeticTypeAndVal(t) {
 				return VoidTypeAndVal{}
 			}
 			
@@ -405,7 +389,7 @@ func (interp Interp) EvalExpr(e Expr) TypeAndVal {
 		// check coercion here.
 		type_tok := ast.Type.(*TypedExpr)
 		targetType, typeOfX := interp.Types[type_tok.TypeName.Lexeme], interp.EvalExpr(ast.X)
-		if AreTypesCoercible(targetType, typeOfX) {
+		if AreTypeAndValCoercible(targetType, typeOfX) {
 			switch targetType.(type) {
 			case IntTypeAndVal:
 				r, _ := ConvertToInt(typeOfX)
@@ -419,7 +403,7 @@ func (interp Interp) EvalExpr(e Expr) TypeAndVal {
 			}
 		} else {
 			interp.MsgSpan.PrepNote(ast.Span(), "here\n")
-			fmt.Fprintf(os.Stdout, interp.DoMessage(e, "type error", COLOR_RED, "Cannot coerce %s to %s.", GetTypeName(typeOfX), GetTypeName(targetType)))
+			fmt.Fprintf(os.Stdout, interp.DoMessage(e, "type error", COLOR_RED, "Cannot coerce %s to %s.", GetTypeAndValName(typeOfX), GetTypeAndValName(targetType)))
 			// error, trying to convert to invalid type.
 		}
 	case *BinExpr:
@@ -686,7 +670,7 @@ func (interp Interp) EvalExpr(e Expr) TypeAndVal {
 		}
 		return int_res
 	case *TernaryExpr:
-		if cond := interp.EvalExpr(ast.A); !IsArithmeticType(cond) {
+		if cond := interp.EvalExpr(ast.A); !IsArithmeticTypeAndVal(cond) {
 			interp.MsgSpan.PrepNote(ast.Span(), "here\n")
 			fmt.Fprintf(os.Stdout, interp.DoMessage(e, "type error", COLOR_RED, "cannot evaluate non-arithmetic type in ternary condition."))
 			// error, need an int value here.
@@ -771,7 +755,7 @@ func (interp Interp) EvalStmt(s Stmt, flow *ControlFlow) TypeAndVal {
 				counter++
 				if counter >= inf_protect {
 					interp.MsgSpan.PrepNote(ast.Span(), "here\n")
-					fmt.Fprintf(os.Stdout, interp.DoMessage(e, "runtime error", COLOR_RED, "infinite loop (counter went over 1M iterations) detected.")
+					fmt.Fprintf(os.Stdout, interp.DoMessage(s, "runtime error", COLOR_RED, "infinite loop (counter went over 1M iterations) detected."))
 					// throw error
 					return VoidTypeAndVal{}
 				}
@@ -799,7 +783,7 @@ func (interp Interp) EvalStmt(s Stmt, flow *ControlFlow) TypeAndVal {
 				counter++
 				if counter >= inf_protect {
 					interp.MsgSpan.PrepNote(ast.Span(), "here\n")
-					fmt.Fprintf(os.Stdout, interp.DoMessage(e, "runtime error", COLOR_RED, "infinite loop (counter went over 1M iterations) detected.")
+					fmt.Fprintf(os.Stdout, interp.DoMessage(s, "runtime error", COLOR_RED, "infinite loop (counter went over 1M iterations) detected."))
 					// throw error
 					return VoidTypeAndVal{}
 				}
