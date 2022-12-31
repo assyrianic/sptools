@@ -694,6 +694,10 @@ func (parser *Parser) Statement() Stmt {
 			return parser.noSemi()
 		}
 		return vardecl
+		
+	// future SPTools Extension: Allow non-global type specifications.
+	///case TKEnum, TKMethodMap, TKTypeset, TKTypedef, TKFuncEnum, TKFuncTag:
+		
 	case TKLCurl:
 		return parser.DoBlock()
 	case TKIf:

@@ -9,7 +9,9 @@
 * Tokenizer
 * Preprocessor
 * Parser
-* SourcePawn AST
+* AST
+* Scope checker [incomplete]
+* Type checker [incomplete]
 
 
 ## Contributing

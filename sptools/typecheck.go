@@ -329,7 +329,7 @@ func (c *TypeChecker) CheckExpr(e Expr) {
 			b := ast.Bs[i].Tag()
 			switch ast.Kinds[i] {
 			case TKLess, TKGreater, TKGreaterE, TKLessE:
-				ast.tag = TYPE_BOOL
+				ast.tag = TYPE_INT
 			}
 			a = b
 		}
