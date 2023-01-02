@@ -30,7 +30,7 @@ import (
 
 type Scope struct {
 	MsgSpan
-	Syms    map[Node]Decl
+	Syms map[*Name]Decl
 	Parent *Scope
 }
 
@@ -38,7 +38,7 @@ func MakeScope(ms MsgSpan, parent *Scope) *Scope {
 	return &Scope{ MsgSpan: ms, Syms: make(map[Node]Decl) }
 }
 
-func (s *Scope) FindSym(name Node) Decl {
+func (s *Scope) FindSym(name *Name) Decl {
 	sym, has := s.Syms[name]
 	if !has {
 		if s.Parent != nil {
@@ -123,3 +123,4 @@ func (s *Scope) VisitExpr(e Expr) {
 	case *CommaExpr:
 	case *FuncLit:
 	}
+}

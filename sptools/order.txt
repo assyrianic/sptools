@@ -1,0 +1,8 @@
+Order of Compilation
+
+Loading files [sptools.go]
+Tokenization [tokenizer.go]
+Preprocessing [preprocessor.go]
+Parsing [parser.go / ast.go]
+Name Resolution [scope.go]
+Type Checking [typecheck.go]
