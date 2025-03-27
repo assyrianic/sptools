@@ -3,16 +3,14 @@ package SPTools
 import (
 	"io"
 	"fmt"
-	///"time"
+	"unsafe"
 	"strings"
 	"strconv"
 )
-
-
 type Node interface {
-	// line & col.
 	Tok() Token
 	Span() Span
+	CopyTok(tk Token)
 	aNode()
 }
 
@@ -21,7 +19,16 @@ type node struct {
 }
 func (n *node) Tok() Token { return n.tok }
 func (n *node) Span() Span { return n.tok.Span }
+func (n *node) CopyTok(tk Token) { n.tok = tk }
 func (*node) aNode() {}
+
+func NewNode[T any](t Token) *T {
+	n := new(T)
+	p := unsafe.Pointer(n)
+	a := (*node)(p)
+	a.CopyTok(t)
+	return n
+}
 
 func copyPosToNode(n *node, t Token) {
 	n.tok = t
@@ -430,6 +437,7 @@ type (
 		Node
 		aExpr()
 		Tag() Type
+		SetTag(t Type)
 	}
 	
 	BadExpr struct {
@@ -564,6 +572,7 @@ func (*expr) aExpr() {}
 func (e *expr) Tag() Type {
 	return e.tag
 }
+func (e *expr) SetTag(t Type) { e.tag = t }
 
 func IsExprNode(n Node) bool {
 	switch n.(type) {
